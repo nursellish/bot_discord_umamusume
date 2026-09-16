@@ -298,7 +298,7 @@ async def send_news(channel, news):
 
 
     embed.set_footer(
-        text="Uma Musume Official Timeline Bot"
+        text="Satono Diamond • Fan-made Timeline • Not affiliated with Cygames "
     )
 
     try:
@@ -558,7 +558,7 @@ async def help_command(ctx):
     )
 
     embed.set_footer(
-        text="Uma Musume Official Timeline Bot"
+        text="Satono Diamond • Fan-made Timeline • Not affiliated with Cygames "
     )
 
     await ctx.send(embed=embed)
@@ -649,7 +649,7 @@ async def latest(ctx):
             f"📢 Kategori: {category}\n"
             f"📊 Status: {status}\n"
             f"📅 Published: {published}\n"
-            f"────────────────────────────────────────\n\n"
+            f"───────────────────────────────────\n\n"
 
         )
 
