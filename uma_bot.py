@@ -9,8 +9,10 @@ from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from scraper import get_news
-from database import load_sent_news, save_sent_news
-
+from database import ( load_sent_news, save_sent_news, 
+        load_guild_config, save_guild_config,
+        load_guild_sent_news, save_guild_sent_news
+)
 
 # ============================================================
 # ⚙️ LOGGING SISTEM
@@ -51,6 +53,11 @@ bot = commands.Bot(
 # ============================================================
 
 sent_news = load_sent_news()
+guild_config = load_guild_config()
+guild_sent_news = load_guild_sent_news()
+
+missing_channel_logged = set()
+sending_news = set()
 
 last_check = None
 
@@ -140,6 +147,27 @@ def get_category(title, message):
     return "📰 Official News"
 
 
+CHANNEL_CATEGORY = {
+    "gacha": "🎟️ Gacha / Banner",
+    "champion": "🏆 Champions Meeting",
+    "legend": "🏇 Legend Race",
+    "campaign": "🎁 Campaign",
+    "event": "🎉 Event",
+    "update": "🔧 Game Update",
+    "news": "📰 Official News"
+}
+
+
+CATEGORY_KEY = {
+    "🎟️ Gacha / Banner": "gacha",
+    "🏆 Champions Meeting": "champions",
+    "🏇 Legend Race": "legend",
+    "🎁 Campaign": "campaign",
+    "🎉 Event": "event",
+    "🔧 Game Update": "update",
+    "📰 Official News": "news"
+}
+
 # ============================================================
 # STATUS
 # ============================================================
@@ -226,6 +254,14 @@ async def send_news(channel, news):
 
     title = news["title"]
     news_id = news["id"]
+
+    logging.info(
+        f"SEND_NEWS dipanggil | "
+        f"News ID: {news_id} | "
+        f"Title: {title} | "
+        f"Channel: {channel.id}"
+    )
+
     image = news["image"]
 
     news_url = f"https://umamusume.com/news/{news_id}/"
@@ -382,7 +418,7 @@ async def on_command_error(ctx, error):
     elif isinstance(error, commands.CommandNotFound):
 
         await ctx.send(
-            f" Sorry ye Dia tidak membuat command `{ctx.message.content.split()[0]}` jadi gk bkl ketemu."
+            f" Sorry ye Dia tidak membuat command `{ctx.message.content.split()[0]}` jadi gak bakalan ketemu."
         )
 
     else:
@@ -401,17 +437,11 @@ async def check_news():
 
     last_check = datetime.now(timezone.utc)
 
-    channel = bot.get_channel(CHANNEL_ID)
-
-    if channel is None:
-
-        print("❌ Channel tidak ditemukan.")
-
-        return
-
     try:
 
-        logging.info("Mengecek Official Uma Musume News...")
+        logging.info(
+            "Mengecek Official Uma Musume News..."
+        )
 
         news_list = get_news()
 
@@ -428,58 +458,147 @@ async def check_news():
             news_id = news["id"]
 
             # ------------------------------------------------
-            # SUDAH DIKENAL?
+            # KATEGORI BERITA
             # ------------------------------------------------
 
-            if news_id in sent_news:
+            category = get_category(
+                news["title"],
+                news["message"]
+            )
+
+            category_key = CATEGORY_KEY.get(
+                category
+            )
+
+            if category_key is None:
+
+                logging.warning(
+                    f"Kategori tidak memiliki mapping: {category}"
+                )
 
                 continue
 
             # ------------------------------------------------
-            # BERITA BARU
+            # CEK SEMUA SERVER
             # ------------------------------------------------
 
-            logging.info(
-                f"Berita baru ditemukan: {news['title']} (ID: {news['id']})"
-            )
+            for guild_id, config in guild_config.items():
 
-            print("ID:", news["id"])
-            print("TITLE:", news["title"])
-            print("POST:", news["post_at"])
-            print("IMAGE:", news["image"])
+                # --------------------------------------------
+                # DATABASE BERITA SERVER
+                # --------------------------------------------
 
-            # ------------------------------------------------
-            # KIRIM KE DISCORD
-            # ------------------------------------------------
+                if guild_id not in guild_sent_news:
 
-            await send_news(
-                channel,
-                news
-            )
+                    guild_sent_news[guild_id] = set()
 
-            sent_news.add(news_id)
+                if news_id in guild_sent_news[guild_id]:
 
-            save_sent_news(sent_news)
+                    continue
 
-            # ------------------------------------------------
-            # KONFIRMASI BERITA TERKIRIM
-            # ------------------------------------------------
+                # --------------------------------------------
+                # CARI CHANNEL SESUAI KATEGORI
+                # --------------------------------------------
 
-            logging.info(
-                f"News berhasil dikirim: {news['title']} (ID: {news_id})"
-            )
+                channel_id = config.get(
+                    category_key
+                )
 
-    except discord.Forbidden as error:
+                if channel_id is None:
 
-        logging.error(
-            f"Discord Permission Error: {error}"
-        )
+                    log_key = (
+                        guild_id,
+                        news_id,
+                        category_key
+                    )
 
-    except discord.HTTPException as error:
+                    if log_key not in missing_channel_logged:
 
-        logging.error(
-            f"Discord HTTP Error: {error}"
-        )
+                        logging.warning(
+                            f"Channel belum dikonfirmasi | "
+                            f"Guild: {guild_id} | "
+                            f"News ID: {news_id} | "
+                            f"Kategori: {category_key} | "
+                            f"Judul: {news['title']}"
+                        )
+
+                        missing_channel_logged.add(
+                            log_key
+                        )
+
+                    continue
+
+                channel = bot.get_channel(
+                    channel_id
+                )
+
+                if channel is None:
+
+                    logging.warning(
+                        f"Channel tidak ditemukan "
+                        f"untuk guild {guild_id}: "
+                        f"{channel_id}"
+                    )
+
+                    continue
+
+                send_key = (
+                    guild_id,
+                    news_id
+                )
+            
+                if send_key in sending_news:
+                    continue
+            
+                sending_news.add(
+                    send_key
+                )
+
+                # --------------------------------------------
+                # KIRIM BERITA
+                # --------------------------------------------
+
+                logging.info(
+                    f"Mengirim berita ID {news_id} "
+                    f"ke guild {guild_id} "
+                    f"kategori {category_key}"
+                )
+
+                try:
+
+                    await send_news(
+                        channel,
+                        news
+                    )
+
+                    guild_sent_news[guild_id].add(
+                        news_id
+                    )
+
+                    save_guild_sent_news(
+                        guild_sent_news
+                    )
+
+                except discord.Forbidden as error:
+
+                    logging.error(
+                        f"Permission Error "
+                        f"guild {guild_id}: {error}"
+                    )
+
+                except discord.HTTPException as error:
+
+                    logging.error(
+                        f"Discord HTTP Error "
+                        f"guild {guild_id}: {error}"
+                    )
+
+                finally:
+
+                    sending_news.discard(
+                        send_key
+
+                    )
 
     except Exception:
 
@@ -488,7 +607,6 @@ async def check_news():
         )
 
         
-
 # ============================================================
 # ⏰ CEK NEWS BEFORE LOOP
 # ============================================================
@@ -517,9 +635,15 @@ async def halo(ctx):
 
 
 bot.remove_command("help")
-
 @bot.command(name="help")
 async def help_command(ctx):
+
+    logging.info(
+        f"HELP dipanggil | "
+        f"Guild: {ctx.guild.id} | "
+        f"User: {ctx.author.id} | "
+        f"Message ID: {ctx.message.id}"
+    )
 
     embed = discord.Embed(
         title="📖 Uma Musume Bot Help",
@@ -546,6 +670,31 @@ async def help_command(ctx):
     )
 
     embed.add_field(
+        name="⚙️ !setchannel <kategori>",
+        value=(
+            "Mengatur channel untuk kategori berita.\n"
+            "Contoh: `!setchannel gacha`"
+        ),
+
+        inline=False
+    )
+
+    embed.add_field(
+        name="📋 !channels",
+        value="Melihat konfigurasi channel server saat ini.",
+        inline=False
+    )  
+
+    embed.add_field(
+        name="🗑️ !removechannel <kategori>",
+        value=(
+            "Menghapus konfigurasi channel suatu kategori.\n"
+            "Contoh: `!removechannel gacha`"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
         name="🧪 !testnews <id>",
         value="Mengirim berita tertentu untuk testing.\nContoh: `!testnews 1023`",
         inline=False
@@ -559,6 +708,11 @@ async def help_command(ctx):
 
     embed.set_footer(
         text="Satono Diamond • Fan-made Timeline • Not affiliated with Cygames "
+    )
+
+    logging.info(
+        f"HELP mengirim embed | "
+        f"Message ID: {ctx.message.id}"
     )
 
     await ctx.send(embed=embed)
@@ -782,7 +936,183 @@ async def stats(ctx):
 
     await ctx.send(embed=embed)
 
-    
+
+@bot.command(name="setchannel")
+@commands.has_permissions(manage_guild=True)
+async def setchannel(ctx, category=None):
+
+    if category is None:
+
+        await ctx.send(
+            "❌ Gunakan: `!setchannel <kategori>`\n\n"
+            "Kategori yang tersedia:\n"
+            "`gacha`\n"
+            "`champions`\n"
+            "`legend`\n"
+            "`campaign`\n"
+            "`event`\n"
+            "`update`\n"
+            "`news`"
+        )
+
+        return
+
+    category = category.lower()
+
+    if category not in CHANNEL_CATEGORY:
+
+        await ctx.send(
+            "❌ Kategori tidak ditemukan.\n"
+            "Gunakan `!setchannel` untuk melihat daftar kategori."
+        )
+
+        return
+
+    category_name = CHANNEL_CATEGORY[category]
+
+    guild_id = str(ctx.guild.id)
+    channel_id = ctx.channel.id
+
+    if guild_id not in guild_config:
+
+        guild_config[guild_id] = {}
+
+    if guild_id not in guild_sent_news:
+
+        guild_sent_news[guild_id] = set(sent_news)
+
+        save_guild_sent_news(
+            guild_sent_news
+        )
+
+    guild_config[guild_id][category] = channel_id
+
+    save_guild_config(guild_config)
+
+    await ctx.send(
+        f"✅ Channel berhasil disimpan!\n\n"
+        f"📂 Kategori: **{category_name}**\n"
+        f"📢 Channel: {ctx.channel.mention}"
+    )
+
+
+@bot.command(name="channels")
+@commands.has_permissions(manage_guild=True)
+async def channels(ctx):
+
+    guild_id = str(ctx.guild.id)
+
+    config = guild_config.get(
+        guild_id,
+        {}
+    )
+
+    embed = discord.Embed(
+        title="⚙️ Channel Configuration",
+        description=(
+            f"Konfigurasi channel untuk "
+            f"**{ctx.guild.name}**"
+        ),
+        color=UMA_COLOR
+    )
+
+    for key, category_name in CHANNEL_CATEGORY.items():
+
+        channel_id = config.get(
+            key
+        )
+
+        if channel_id is None:
+
+            channel_text = "❌ Belum dikonfigurasi"
+
+        else:
+
+            channel = bot.get_channel(
+                channel_id
+            )
+
+            if channel is None:
+
+                channel_text = (
+                    f"⚠️ Channel tidak ditemukan "
+                    f"(`{channel_id}`)"
+                )
+
+            else:
+
+                channel_text = channel.mention
+
+        embed.add_field(
+            name=category_name,
+            value=channel_text,
+            inline=False
+        )
+
+    embed.set_footer(
+        text="Satono Diamond • Fan-made Timeline • Not affiliated with Cygames "
+    )
+
+    await ctx.send(
+        embed=embed
+    )
+
+
+@bot.command(name="removechannel")
+@commands.has_permissions(manage_guild=True)
+async def removechannel(ctx, category=None):
+
+    if category is None:
+
+        await ctx.send(
+            "❌ Gunakan: `!removechannel <kategori>`\n\n"
+            "Contoh: `!removechannel gacha`"
+        )
+
+        return
+
+    category = category.lower()
+
+    if category not in CHANNEL_CATEGORY:
+
+        await ctx.send(
+            "❌ Kategori tidak ditemukan.\n"
+            "Gunakan kategori yang tersedia."
+        )
+
+        return
+
+    guild_id = str(ctx.guild.id)
+
+    if guild_id not in guild_config:
+
+        await ctx.send(
+            "❌ Server ini belum memiliki konfigurasi channel."
+        )
+
+        return
+
+    if category not in guild_config[guild_id]:
+
+        await ctx.send(
+            f"❌ Kategori **{CHANNEL_CATEGORY[category]}** "
+            "belum memiliki channel."
+        )
+
+        return
+
+    del guild_config[guild_id][category]
+
+    save_guild_config(
+        guild_config
+    )
+
+    await ctx.send(
+        f"🗑️ Konfigurasi channel berhasil dihapus!\n\n"
+        f"📂 Kategori: **{CHANNEL_CATEGORY[category]}**"
+    )
+
+
 
 # ============================================================
 # ▶️ START BOT
