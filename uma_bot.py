@@ -1,5 +1,4 @@
 import os
-import time
 import logging
 
 import discord
@@ -9,10 +8,16 @@ from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from scraper import get_news
-from database import ( load_sent_news, save_sent_news, 
-        load_guild_config, save_guild_config,
-        load_guild_sent_news, save_guild_sent_news
+
+from database import ( 
+    load_sent_news, 
+    save_sent_news, 
+    load_guild_config,
+    save_guild_config,
+    load_guild_sent_news, 
+    save_guild_sent_news
 )
+
 
 # ============================================================
 # ⚙️ LOGGING SISTEM
@@ -31,7 +36,6 @@ logging.basicConfig(
 load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 
 
 # ============================================================
@@ -149,7 +153,7 @@ def get_category(title, message):
 
 CHANNEL_CATEGORY = {
     "gacha": "🎟️ Gacha / Banner",
-    "champion": "🏆 Champions Meeting",
+    "champions": "🏆 Champions Meeting",
     "legend": "🏇 Legend Race",
     "campaign": "🎁 Campaign",
     "event": "🎉 Event",
@@ -185,7 +189,7 @@ def get_status(title, message):
         "coming shortly",
         "will be held",
         "will begin", 
-        "are set to begin"
+        "are set to begin",
         "planned to be implemented",
         "in the near future"
     ]):
@@ -201,7 +205,7 @@ def get_status(title, message):
         "available now",
         "out now",
         "is here",
-        "is now live"
+        "is now live",
         "has begun",
         "have begun"
     ]):
@@ -245,6 +249,41 @@ def format_date(date_string):
         "%d %B %Y • %H:%M UTC"
     )
 
+
+def initialize_baseline():
+
+    global sent_news
+
+    if sent_news:
+        logging.info(
+            f"Memuat {len(sent_news)} berita dari penyimpanan."
+        )
+        return
+
+    logging.info(
+        "Database global kosong. Mengambil berita awal..."
+    )
+    
+    news_list = get_news()
+
+    if not news_list:
+        logging.warning(
+            "Tidak dapat membuat baseline karena berita gagal diambil."
+        )
+        return
+
+    for news in news_list:
+        sent_news.add(
+            news["id"]
+        )
+
+    save_sent_news(
+        sent_news
+    )
+
+    logging.info(
+        f"Baseline berhasil dibuat: {len(sent_news)} berita."
+    )
 
 # ============================================================
 # 📢 KIRIM NEWS KE DISCORD
@@ -357,6 +396,7 @@ async def send_news(channel, news):
 
         raise
 
+
 # ============================================================
 # 🚀 BOT ONLINE
 # ============================================================
@@ -371,42 +411,33 @@ async def on_ready():
     # --------------------------------------------------------
     # BASELINE
     # --------------------------------------------------------
-    
-    print("📚 Jumlah known news:", len(sent_news))
+    initialize_baseline()
 
-    if not sent_news:
-
-        print("📚 Mengambil berita awal...")
-        news_list = get_news()
-
-        for news in news_list:
-            sent_news.add(news["id"])
-
-        save_sent_news(sent_news)
-
-        print(
-            f"📚 Baseline: {len(sent_news)} berita sudah dikenal."
-        )
-    else:
-        print(
-
-            f"📚 Memuat {len(sent_news)} berita dari penyimpanan."
-        )
-
-    # --------------------------------------------------------
-    # START MONITORING
-    # --------------------------------------------------------
-
-    logging.info("Memulai monitoring...")
+    logging.info(
+        "Memulai monitoring..."
+    )
 
     if not check_news.is_running():
 
         check_news.start()
 
 
+# --------------------------------------------------------
+# COMMAND ERROR
+# --------------------------------------------------------
 
 @bot.event
 async def on_command_error(ctx, error):
+
+    if isinstance(error, commands.CommandNotFound):
+    
+        command_name = ctx.message.content.split()[0]
+
+        await ctx.send(
+            f"❌ Command `{command_name}` tidak ditemukan."
+        )
+
+        return
 
     if isinstance(error, commands.BadArgument):
 
@@ -415,16 +446,23 @@ async def on_command_error(ctx, error):
             "Dia kasih contoh ya : `!testnews 1023`"
         )
 
-    elif isinstance(error, commands.CommandNotFound):
+        return
+
+    if isinstance(error, commands.MissingPermissions):
 
         await ctx.send(
-            f" Sorry ye Dia tidak membuat command `{ctx.message.content.split()[0]}` jadi gak bakalan ketemu."
+            "🚫 Kamu tidak memiliki permission "
+            "untuk menggunakan command ini."
         )
 
-    else:
+        return
 
-        print(f"❌ Command error: {error}")
-  
+    logging.error(
+        f"Command error | "
+        f"Command: {ctx.command} | "
+        f"Error: {error}"
+    )
+
 
 # ============================================================
 # ⏰ CEK NEWS
@@ -719,7 +757,7 @@ async def help_command(ctx):
     
 
 @bot.command(name="testnews")
-async def testnews(ctx, news_id: int= None):
+async def testnews(ctx, news_id: int = None):
 
     if news_id is None:
         await ctx.send(
@@ -735,8 +773,7 @@ async def testnews(ctx, news_id: int= None):
         await ctx.send("❌ Tidak ada berita dari API.")
         return
 
-    # news = news_list[0]
-    news= None
+    news = None
 
     for item in news_list:
         if item["id"] == news_id:
@@ -770,19 +807,20 @@ async def latest(ctx):
     news_list = get_news(limit=5)
 
     if not news_list:
+
         await ctx.send(
             "❌ Tidak ada berita dari API."
         )
         return
 
-    embed = discord.Embed(
-        title=f"📰 Latest {len(news_list)} Official News",
-        color=UMA_COLOR
-    )
+    news_items = []
 
-    for index, news in enumerate(news_list, start=1):
+    for index, news in enumerate(
+        news_list,
+        start=1
+    ):
 
-        status= get_status(
+        status = get_status(
             news["title"],
             news["message"]
         )
@@ -796,16 +834,24 @@ async def latest(ctx):
             news["post_at"]
         )
 
-        embed.description = (
-            f"{embed.description or ''}"
-            f"**{index}. [{news['title']}](https://umamusume.com/news/{news['id']}/)**\n"
-            f"🆔 ID: `{news['id']}`\n"
+        news_item = ( 
+            f"**{index}. [{news['title']}]" 
+            f"(https://umamusume.com/news/{news['id']}/)**\n"
+            f"🆔 ID: `{news['id']}`\n" 
             f"📢 Kategori: {category}\n"
             f"📊 Status: {status}\n"
-            f"📅 Published: {published}\n"
-            f"───────────────────────────────────\n\n"
+            f"📅 Published: {published}\n" 
+            f"───────────────────────────────────" )
 
+        news_items.append(
+            news_item
         )
+
+    embed = discord.Embed(
+        title=f"📰 Latest {len(news_list)} Official News",
+        description="\n\n".join(news_items),
+        color=UMA_COLOR
+    )
 
     await ctx.send(embed=embed)
     
@@ -827,6 +873,19 @@ async def status(ctx):
     embed.add_field(
         name="📚 Known News",
         value=str(len(sent_news)),
+        inline=True
+    )
+
+    guild_id = str(ctx.guild.id)
+
+    guild_news = guild_sent_news.get(
+        guild_id,
+        set()
+    )
+
+    embed.add_field(
+        name="📨 Sent to This Server",
+        value=str(len(guild_news)),
         inline=True
     )
 
@@ -868,14 +927,40 @@ async def status(ctx):
 @bot.command(name="stats")
 async def stats(ctx):
 
-    news_list = get_news(limit=50)
+    news_list = get_news(
+        limit=50
+    )
 
     if not news_list:
+
         await ctx.send(
             "❌ Tidak ada berita dari API."
         )
+
         return
 
+    category_count = {}
+    status_count = {}
+
+    for news in news_list:
+
+        category = get_category(
+            news["title"],
+            news["message"]
+        )
+
+        status = get_status(
+            news["title"],
+            news["message"]
+        )
+
+        category_count[category] = (
+            category_count.get(category, 0) + 1
+        )
+
+        status_count[status] = (
+            status_count.get(status, 0) + 1
+        )
 
     embed = discord.Embed(
         title="📊 News Statistics",
@@ -888,22 +973,6 @@ async def stats(ctx):
         inline=False
     )
 
-
-    category_count = {}
-    
-    for news in news_list:
-
-        category = get_category(
-            news["title"],
-            news["message"]
-        )
-
-        if category not in category_count:
-            category_count[category] = 0
-
-        category_count[category] += 1
-
-
     for category, count in category_count.items():
 
         embed.add_field(
@@ -911,20 +980,6 @@ async def stats(ctx):
             value=str(count),
             inline=True
         )
-
-    status_count = {}
-
-    for news in news_list:
-
-        status = get_status(
-            news["title"],
-            news["message"]
-        )
-
-        if status not in status_count:
-            status_count[status] = 0
-
-        status_count[status] += 1
 
     for status, count in status_count.items():
 
@@ -934,7 +989,9 @@ async def stats(ctx):
             inline=True
         )
 
-    await ctx.send(embed=embed)
+    await ctx.send(
+        embed=embed
+    )
 
 
 @bot.command(name="setchannel")
@@ -968,13 +1025,10 @@ async def setchannel(ctx, category=None):
 
         return
 
-    category_name = CHANNEL_CATEGORY[category]
-
     guild_id = str(ctx.guild.id)
     channel_id = ctx.channel.id
 
     if guild_id not in guild_config:
-
         guild_config[guild_id] = {}
 
     if guild_id not in guild_sent_news:
@@ -987,7 +1041,11 @@ async def setchannel(ctx, category=None):
 
     guild_config[guild_id][category] = channel_id
 
-    save_guild_config(guild_config)
+    save_guild_config(
+        guild_config
+    )
+
+    category_name = CHANNEL_CATEGORY[category]
 
     await ctx.send(
         f"✅ Channel berhasil disimpan!\n\n"
@@ -1016,10 +1074,10 @@ async def channels(ctx):
         color=UMA_COLOR
     )
 
-    for key, category_name in CHANNEL_CATEGORY.items():
+    for category, category_name in CHANNEL_CATEGORY.items():
 
         channel_id = config.get(
-            key
+            category
         )
 
         if channel_id is None:
@@ -1084,15 +1142,18 @@ async def removechannel(ctx, category=None):
 
     guild_id = str(ctx.guild.id)
 
-    if guild_id not in guild_config:
+    config = guild_config.get(
+        guild_id
+    )
 
+    if config is None:
         await ctx.send(
             "❌ Server ini belum memiliki konfigurasi channel."
         )
 
         return
 
-    if category not in guild_config[guild_id]:
+    if category not in config:
 
         await ctx.send(
             f"❌ Kategori **{CHANNEL_CATEGORY[category]}** "
@@ -1101,7 +1162,7 @@ async def removechannel(ctx, category=None):
 
         return
 
-    del guild_config[guild_id][category]
+    del config[category]
 
     save_guild_config(
         guild_config

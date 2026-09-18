@@ -2,15 +2,26 @@ import json
 import os
 import logging
 
-FILE_PATH = "data/sent_news.json"
 
+# ============================== 
+# Database Paths 
+# ==============================
+
+FILE_PATH = "data/sent_news.json"
+GUILD_CONFIG_PATH = "data/guild_config.json"
+GUILD_SENT_NEWS_PATH = "data/guild_sent_news.json"
+
+
+# ============================== 
+# Global Sent News 
+# ==============================
 
 def load_sent_news():
 
     if not os.path.exists(FILE_PATH):
 
         logging.info(
-            "File sent_news belum ada. Menggunakan database Kosong."
+            "File sent_news belum ada. Menggunakan database Kosong ."
         )
 
         return set()
@@ -38,7 +49,9 @@ def save_sent_news(sent_news):
     )
 
 
-GUILD_CONFIG_PATH = "data/guild_config.json"
+# ============================== 
+# Guild Configuration 
+# ==============================
 
 def load_guild_config():
 
@@ -81,7 +94,9 @@ def save_guild_config(config):
     )
 
 
-GUILD_SENT_NEWS_PATH = "data/guild_sent_news.json"
+# ============================== 
+# Guild Sent News 
+# ==============================
 
 def load_guild_sent_news():
 
