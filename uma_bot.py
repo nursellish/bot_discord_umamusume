@@ -1,5 +1,6 @@
 import os
 import logging
+import sys
 
 import discord
 from discord.ext import tasks, commands
@@ -25,7 +26,8 @@ from database import (
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s"
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    stream=sys.stdout
 )
 
 
