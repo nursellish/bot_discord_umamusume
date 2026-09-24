@@ -1,6 +1,7 @@
 import os
 import logging
 import sys
+import database
 
 import discord
 from discord.ext import tasks, commands
@@ -8,7 +9,7 @@ from discord.ext import tasks, commands
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
-from scraper import get_news
+from scraper import get_news, create_preview
 
 from database import ( 
     load_sent_news, 
@@ -62,10 +63,17 @@ sent_news = load_sent_news()
 guild_config = load_guild_config()
 guild_sent_news = load_guild_sent_news()
 
+if database.guild_sent_news_corrupted:
+    logging.warning(
+        " ⚠️ \nDatabase guild_sent_news rusak."
+        "Bot masuk recovery mode."
+    )
+
 missing_channel_logged = set()
 sending_news = set()
 
 last_check = None
+api_status = False
 
 # ============================================================
 # 🎨 WARNA EMBED
@@ -82,6 +90,37 @@ def get_category(title, message):
 
     text = f"{title} {message}".lower()
 
+
+    # -----------------------------
+    # 🏆 CHAMPIONS MEETING
+    # -----------------------------
+    
+    if any(keyword in text for keyword in [
+        "champions meeting",
+        "champion meeting"
+    ]):
+    
+        return "🏆 Champions Meeting"
+
+
+    # -----------------------------
+    # 🏇 LEGEND RACE
+    # -----------------------------
+    
+    if "legend race" in text:
+    
+        return "🏇 Legend Race"
+
+
+    # -----------------------------
+    # 🎉 EVENT
+    # -----------------------------
+
+    if "story event" in text:
+
+        return "🎉 Event"
+
+
     # -----------------------------
     # 🎟️ GACHA
     # -----------------------------
@@ -96,27 +135,6 @@ def get_category(title, message):
 
 
     # -----------------------------
-    # 🏆 CHAMPIONS MEETING
-    # -----------------------------
-
-    if any(keyword in text for keyword in [
-        "champions meeting",
-        "champion meeting"
-    ]):
-
-        return "🏆 Champions Meeting"
-
-
-    # -----------------------------
-    # 🏇 LEGEND RACE
-    # -----------------------------
-    
-    if "legend race" in text:
-    
-        return "🏇 Legend Race"
-
-
-    # -----------------------------
     # 🎁 CAMPAIGN
     # -----------------------------
     
@@ -127,15 +145,6 @@ def get_category(title, message):
     ]):
     
         return "🎁 Campaign"
-
-
-    # -----------------------------
-    # 🎉 EVENT
-    # -----------------------------
-
-    if "story event" in text:
-
-        return "🎉 Event"
 
 
     # -----------------------------
@@ -287,6 +296,33 @@ def initialize_baseline():
         f"Baseline berhasil dibuat: {len(sent_news)} berita."
     )
 
+
+def format_time_ago(date_time):
+
+    if not date_time:
+        return "Belum ada pengecekan"
+
+    now = datetime.now(timezone.utc)
+
+    difference = now - date_time
+
+    seconds = int(
+        difference.total_seconds()
+    )
+
+    if seconds < 60:
+        return f"{seconds} seconds ago"
+
+    minutes = seconds // 60
+
+    if minutes < 60:
+        return f"{minutes} minutes ago"
+
+    hours = minutes // 60
+
+    return f"{hours} hours ago"
+
+
 # ============================================================
 # 📢 KIRIM NEWS KE DISCORD
 # ============================================================
@@ -306,10 +342,6 @@ async def send_news(channel, news):
     image = news["image"]
 
     news_url = f"https://umamusume.com/news/{news_id}/"
-
-    published = format_date(
-        news["post_at"]
-    )
 
     category = get_category(title, news["message"])
 
@@ -332,22 +364,38 @@ async def send_news(channel, news):
 
         color=color,
 
-        timestamp=datetime.now(timezone.utc)
+        timestamp=datetime.strptime(
+            news["post_at"],
+            "%Y-%m-%d %H:%M:%S"
+        ).replace(
+            tzinfo=timezone.utc
+        )
     )
 
-
     embed.set_author(
-        name="Satono Diamond • Official News"
+        name="Diamond Fan-made • Official News"
     )
 
     embed.add_field(
         name="📝 Preview",
-        value=news["message"],
+        value=create_preview(news["message"]),
         inline=False
     )
 
+    period_text = format_periods(
+        news["periods"]
+    )
+
+    if period_text:
+
+        embed.add_field(
+            name="⏰ Period",
+            value=period_text,
+            inline=False
+        )
+
     embed.add_field(
-        name="📢 Kategori",
+        name="📂 Kategori",
         value=category,
         inline=True
     )
@@ -362,7 +410,10 @@ async def send_news(channel, news):
 
     embed.add_field(
         name="📅 Published",
-        value=published,
+        value=format_date(
+            news["post_at"]
+        ),
+
         inline=False
     )
 
@@ -375,7 +426,7 @@ async def send_news(channel, news):
 
 
     embed.set_footer(
-        text="Satono Diamond • Fan-made Timeline • Not affiliated with Cygames "
+        text="Diamond • Fan-made Timeline • Not affiliated with Cygames"
     )
 
     try:
@@ -397,6 +448,58 @@ async def send_news(channel, news):
         )
 
         raise
+
+
+def format_period_datetime(date_string):
+
+    if not date_string:
+        return None
+
+    try:
+
+        date_string = (
+            date_string
+            .replace("a.m.", "AM")
+            .replace("p.m.", "PM")
+        )
+
+        date = datetime.strptime(
+            date_string,
+            "%I:%M %p, %b %d, %Y (UTC)"
+        )
+
+        return date.strftime(
+            "%d %b %H:%M UTC"
+        )
+
+    except ValueError:
+
+        return date_string
+
+
+def format_periods(periods):
+
+    if not periods:
+        return None
+
+    first = periods[0]
+    last = periods[-1]
+
+    start = format_period_datetime(
+        first["start"]
+    )
+
+    end = format_period_datetime(
+        last["end"]
+    )
+
+    if end:
+
+        return (
+            f"`{start}` → `{end}`"
+        )
+
+    return f"`{start}`"
 
 
 # ============================================================
@@ -467,13 +570,14 @@ async def on_command_error(ctx, error):
 
 
 # ============================================================
-# ⏰ CEK NEWS
+# ⏰ CHECK NEWS
 # ============================================================
 
 @tasks.loop(seconds=60)
 async def check_news():
 
     global last_check
+    global api_status
 
     last_check = datetime.now(timezone.utc)
 
@@ -487,11 +591,41 @@ async def check_news():
 
         if news_list is None:
 
+            api_status = False
+
             logging.warning(
                 "News gagal diambil. Monitoring akan mencoba lagi nanti."
             )
 
             return
+
+        api_status = True
+
+        if database.guild_sent_news_corrupted:
+        
+            logging.warning(
+                "Recovery mode aktif. Membuat baseline berita per server..."
+            )
+
+            for guild_id in guild_config:
+            
+                guild_sent_news[guild_id] = {
+                    news["id"]
+                    for news in news_list
+                }
+
+            save_guild_sent_news(
+                guild_sent_news
+            )
+
+            database.guild_sent_news_corrupted = False
+
+            logging.info(
+                "Recovery selesai. Berita lama tidak dikirim."
+            )
+
+            return
+
 
         for news in news_list:
 
@@ -747,7 +881,7 @@ async def help_command(ctx):
     )
 
     embed.set_footer(
-        text="Satono Diamond • Fan-made Timeline • Not affiliated with Cygames "
+        text="Diamond • Fan-made Timeline • Not affiliated with Cygames "
     )
 
     logging.info(
@@ -790,15 +924,13 @@ async def testnews(ctx, news_id: int = None):
 
         return
 
-    print("TITLE:", news["title"])
-    print("MESSAGE:", news["message"])
 
     await send_news(
         ctx.channel,
         news
     )
 
-    print(
+    logging.info(
         f"🧪 Test news dikirim: {news['title']}"
     )
 
@@ -836,14 +968,23 @@ async def latest(ctx):
             news["post_at"]
         )
 
-        news_item = ( 
-            f"**{index}. [{news['title']}]" 
+        period = format_periods(
+            news["periods"]
+        )
+
+        news_item = (
+            f"**{index}. [{news['title']}]"
             f"(https://umamusume.com/news/{news['id']}/)**\n"
-            f"🆔 ID: `{news['id']}`\n" 
-            f"📢 Kategori: {category}\n"
-            f"📊 Status: {status}\n"
-            f"📅 Published: {published}\n" 
-            f"───────────────────────────────────" )
+            f"🆔 ID: `{news['id']}`\n\n"
+            f"📂 Kategori: {category}\n\n"
+            f"📊 Status: {status}\n\n"
+            f"📅 Published: {published}"
+        )
+
+        if period:
+            news_item += (
+                f"\n\n⏰ Period: {period}"
+            )
 
         news_items.append(
             news_item
@@ -851,11 +992,29 @@ async def latest(ctx):
 
     embed = discord.Embed(
         title=f"📰 Latest {len(news_list)} Official News",
-        description="\n\n".join(news_items),
-        color=UMA_COLOR
+        description="\n\n────────────────────\n\n".join(
+            news_items
+        ),
+        color=UMA_COLOR,
+        timestamp=datetime.now(
+            timezone.utc
+        )
     )
 
-    await ctx.send(embed=embed)
+    latest_image = news_list[0]["image"]
+
+    if latest_image:
+        embed.set_thumbnail(
+            url=latest_image
+        )
+
+    embed.set_footer(
+        text="Diamond • Fan-made Timeline • Not affiliated with Cygames "
+    )
+
+    await ctx.send(
+        embed=embed
+    )
     
 
 @bot.command(name="status")
@@ -867,15 +1026,28 @@ async def status(ctx):
     )
 
     embed.add_field(
-        name="🟢 Status",
-        value="Online",
+        name="📊 Status",
+        value="🟢 Online",
         inline=True
     )
+
+    api_text = (
+        "🟢 Online"
+        if api_status
+        else "🔴 Offline"
+    )
+
+    embed.add_field(
+        name="🌐 API Status",
+        value=api_text,
+        inline=True
+    )
+
 
     embed.add_field(
         name="📚 Known News",
         value=str(len(sent_news)),
-        inline=True
+        inline=False
     )
 
     guild_id = str(ctx.guild.id)
@@ -914,7 +1086,13 @@ async def status(ctx):
     embed.add_field(
         name="🕐 Last Check",
         value=(
-            last_check.strftime("%d %B %Y • %H:%M:%S UTC")
+            (
+                last_check.strftime(
+                    "%d %B %Y • %H:%M:%S UTC"
+                )
+                + "\n" 
+                + f"⏳ {format_time_ago(last_check)}"
+            )
             if last_check
             else "Belum ada pengecekan"
 
@@ -943,6 +1121,16 @@ async def stats(ctx):
 
     category_count = {}
     status_count = {}
+
+    category_order = [ 
+                "🏆 Champions Meeting",               
+                "🏇 Legend Race",         
+                "🎉 Event",   
+                "🎟️ Gacha / Banner",
+                "🎁 Campaign",
+                "🔧 Game Update",
+                "📰 Official News" 
+            ]
 
     for news in news_list:
 
@@ -975,21 +1163,119 @@ async def stats(ctx):
         inline=False
     )
 
-    for category, count in category_count.items():
+    category_text = ""
 
-        embed.add_field(
-            name=category,
-            value=str(count),
-            inline=True
+    for category in category_order:
+
+        count = category_count.get(
+            category,
+            0
         )
+
+        category_text += (
+            f"{category} — **{count}**\n\n"
+        )
+
+    embed.add_field(
+        name="📂 Category Distribution",
+        value=category_text,
+        inline=False
+    )
+
+    status_text = ""
 
     for status, count in status_count.items():
 
+        status_text += (
+            f"{status} — **{count}**\n\n"
+        )
+
+    embed.add_field(
+        name="📊 Status Distribution",
+        value=status_text,
+        inline=False
+    )
+
+    await ctx.send(
+        embed=embed
+    )
+
+
+@bot.command(name="channels")
+@commands.has_permissions(manage_guild=True)
+async def channels(ctx):
+
+    guild_id = str(ctx.guild.id)
+
+    config = guild_config.get(
+        guild_id,
+        {}
+    )
+
+    total_channels = len(
+        CHANNEL_CATEGORY
+    )
+
+    configured_channels = sum(
+        1
+        for category in CHANNEL_CATEGORY
+        if config.get(category) is not None
+    )
+
+    embed = discord.Embed(
+        title="⚙️ Channel Configuration",
+        description=(
+            f"Konfigurasi channel untuk "
+            f"**{ctx.guild.name}**\n\n"
+        ),
+        color=UMA_COLOR
+    )
+
+    embed.add_field( 
+        name="⚙️ Configured",
+        value=( 
+            f"**{configured_channels}/{total_channels}** "
+            f"channels" 
+        ), 
+        inline=False 
+    )
+
+    for category, category_name in CHANNEL_CATEGORY.items():
+
+        channel_id = config.get(
+            category
+        )
+
+        if channel_id is None:
+
+            channel_text = "❌ Belum dikonfigurasi"
+
+        else:
+
+            channel = bot.get_channel(
+                channel_id
+            )
+
+            if channel is None:
+
+                channel_text = (
+                    f"⚠️ Channel tidak ditemukan "
+                    f"(`{channel_id}`)"
+                )
+
+            else:
+
+                channel_text = channel.mention
+
         embed.add_field(
-            name=status,
-            value=str(count),
+            name=category_name,
+            value=channel_text,
             inline=True
         )
+
+    embed.set_footer(
+        text="Diamond • Fan-made Timeline • Not affiliated with Cygames"
+    )
 
     await ctx.send(
         embed=embed
@@ -1049,72 +1335,24 @@ async def setchannel(ctx, category=None):
 
     category_name = CHANNEL_CATEGORY[category]
 
+    total_channels = len(
+        CHANNEL_CATEGORY
+    )
+
+    configured_channels = sum(
+        1
+        for configured_category in CHANNEL_CATEGORY
+        if guild_config[guild_id].get(
+            configured_category
+        )is not None
+    )
+
     await ctx.send(
         f"✅ Channel berhasil disimpan!\n\n"
         f"📂 Kategori: **{category_name}**\n"
-        f"📢 Channel: {ctx.channel.mention}"
-    )
-
-
-@bot.command(name="channels")
-@commands.has_permissions(manage_guild=True)
-async def channels(ctx):
-
-    guild_id = str(ctx.guild.id)
-
-    config = guild_config.get(
-        guild_id,
-        {}
-    )
-
-    embed = discord.Embed(
-        title="⚙️ Channel Configuration",
-        description=(
-            f"Konfigurasi channel untuk "
-            f"**{ctx.guild.name}**"
-        ),
-        color=UMA_COLOR
-    )
-
-    for category, category_name in CHANNEL_CATEGORY.items():
-
-        channel_id = config.get(
-            category
-        )
-
-        if channel_id is None:
-
-            channel_text = "❌ Belum dikonfigurasi"
-
-        else:
-
-            channel = bot.get_channel(
-                channel_id
-            )
-
-            if channel is None:
-
-                channel_text = (
-                    f"⚠️ Channel tidak ditemukan "
-                    f"(`{channel_id}`)"
-                )
-
-            else:
-
-                channel_text = channel.mention
-
-        embed.add_field(
-            name=category_name,
-            value=channel_text,
-            inline=False
-        )
-
-    embed.set_footer(
-        text="Satono Diamond • Fan-made Timeline • Not affiliated with Cygames "
-    )
-
-    await ctx.send(
-        embed=embed
+        f"📢 Channel: {ctx.channel.mention}\n\n"
+        f"⚙️ Configuration: "
+        f"**{configured_channels}/{total_channels} channels**"
     )
 
 
@@ -1170,9 +1408,23 @@ async def removechannel(ctx, category=None):
         guild_config
     )
 
+    total_channels = len(
+        CHANNEL_CATEGORY
+    )
+
+    configured_channels = sum(
+        1
+        for configured_category in CHANNEL_CATEGORY
+        if guild_config[guild_id].get(
+            configured_category
+        ) is not None
+    )
+
     await ctx.send(
         f"🗑️ Konfigurasi channel berhasil dihapus!\n\n"
-        f"📂 Kategori: **{CHANNEL_CATEGORY[category]}**"
+        f"📂 Kategori: **{CHANNEL_CATEGORY[category]}**\n\n"
+        f"⚙️ Configuration: "
+        f"**{configured_channels}/{total_channels} channels**"
     )
 
 

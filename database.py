@@ -7,6 +7,7 @@ import logging
 # Database Paths 
 # ==============================
 
+guild_sent_news_corrupted = False
 FILE_PATH = "data/sent_news.json"
 GUILD_CONFIG_PATH = "data/guild_config.json"
 GUILD_SENT_NEWS_PATH = "data/guild_sent_news.json"
@@ -100,21 +101,32 @@ def save_guild_config(config):
 
 def load_guild_sent_news():
 
-    if not os.path.exists(GUILD_SENT_NEWS_PATH):
+    global guild_sent_news_corrupted
 
+    if not os.path.exists(GUILD_SENT_NEWS_PATH):
         logging.info(
             "File guild_sent_news belum ada. Menggunakan database kosong."
         )
-
         return {}
+    
+    try:
+        with open(
+            GUILD_SENT_NEWS_PATH,
+            "r",
+            encoding="utf-8"
+        ) as file:
+            data = json.load(file)
 
-    with open(
-        GUILD_SENT_NEWS_PATH,
-        "r",
-        encoding="utf-8"
-    ) as file:
+    except json.JSONDecodeError as error:
+        guild_sent_news_corrupted = True
 
-        data = json.load(file)
+        logging.error(
+            f"Database guild_sent_news rusak: {error}"
+        )
+        logging.warning(
+            "Menggunakan database guild_sent_news kosong."
+        )
+        return{}
 
     return {
         guild_id: set(news_ids)
