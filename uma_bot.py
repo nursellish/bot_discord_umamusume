@@ -1046,14 +1046,9 @@ async def help_command(ctx):
         inline=False
     )
 
-    embed.add_field(
-        name="📖 !guide",
-        value="Menampilkan Game8 Guide Champions Meeting. ",
-        inline=False
-    )
 
     embed.set_footer(
-        text="Diamond • Fan-made Timeline • Not affiliated with Cygames "
+        text="Diamond Fanmade • Timeline • Not affiliated with Cygames "
     )
 
     logging.info(
