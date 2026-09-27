@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from scraper import get_news, create_preview
+from scraper_guide import get_game8_data
 
 from database import ( 
     load_sent_news, 
@@ -373,7 +374,7 @@ async def send_news(channel, news):
     )
 
     embed.set_author(
-        name="Diamond Fan-made • Official News"
+        name="Diamond Fanmade • Official News"
     )
 
     embed.add_field(
@@ -426,7 +427,7 @@ async def send_news(channel, news):
 
 
     embed.set_footer(
-        text="Diamond • Fan-made Timeline • Not affiliated with Cygames"
+        text="Diamond Fanmade • Timeline • Not affiliated with Cygames"
     )
 
     try:
@@ -448,6 +449,60 @@ async def send_news(channel, news):
         )
 
         raise
+
+
+async def send_game8_update(channel):
+
+    logging.info(
+        "🎮 Mengambil data Game8..."
+    )
+
+    data = get_game8_data()
+
+    if not data:
+
+        logging.warning(
+            "❌ Data Game8 kosong."
+        )
+
+        return
+
+    logging.info(
+        f"✅ Data Game8 berhasil | "
+        f"Cup: {data['current_cup']} | "
+        f"Tier: {len(data['tier_characters'])} | "
+        f"Recommended: {len(data['recommended_characters'])}"
+    )
+
+    embed = format_game8_message(
+        data
+    )
+
+    await channel.send(
+        embed=embed
+    )
+
+    logging.info(
+        "📨 Pesan Game8 berhasil dikirim."
+    )
+
+
+def is_champions_meeting_news(news):
+
+    title = news["title"]
+
+    result = (
+        "The race event Champions Meeting:" in title
+        and "is coming" in title
+    )
+
+    logging.info(
+        f"CHECK CHAMPIONS MEETING | "
+        f"Title: {title} | "
+        f"Result: {result}"
+    )
+
+    return result
 
 
 def format_period_datetime(date_string):
@@ -502,6 +557,84 @@ def format_periods(periods):
     return f"`{start}`"
 
 
+def format_game8_message(data):
+
+    embed = discord.Embed(
+        title=f"🏆 {data['current_cup']}",
+        color=discord.Color.from_str("#5865F2")
+    )
+
+    embed.set_author(
+        name="Diamond Fanmade • Guide"
+    )
+
+    embed.set_image(
+        url=data["map_url"]
+    )
+
+    embed.add_field(
+        name="📊 Stat Baselines",
+        value=(
+            f"👟 **Speed:** "
+            f"{data['stat_baselines']['values']['Speed']}\n"
+
+            f"❤️ **Stamina:** "
+            f"{data['stat_baselines']['values']['Stamina']}\n"
+
+            f"💪 **Power:** "
+            f"{data['stat_baselines']['values']['Power']}\n"
+
+            f"🔥 **Guts:** "
+            f"{data['stat_baselines']['values']['Guts']}\n"
+
+            f"🎓 **Wit:** "
+            f"{data['stat_baselines']['values']['Wit']}"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🏁 Race Conditions",
+        value=(
+            f"📏 **Distance:** "
+            f"{data['race_conditions']['Distance']['name']} "
+            f"({data['race_conditions']['Distance']['rank']})\n"
+            
+            f"🌱 **Track:** "
+            f"{data['race_conditions']['Track']['name']} "
+            f"({data['race_conditions']['Track']['rank']})\n"
+            
+            f"🏇 **Style:** "
+            f"{data['race_conditions']['Style']['name']} "
+            f"({data['race_conditions']['Style']['rank']})"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🎯 Recommended Characters",
+        value=(
+            f"**{len(data['recommended_characters'])}** characters"
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name="⭐ Tier Characters",
+        value=(
+            f"**{len(data['tier_characters'])}** characters"
+        ),
+        inline=True
+    )
+
+    embed.set_footer(
+        text="Diamond Fanmade • Timeline • Not affiliated with Cygames"
+    )
+
+
+    return embed
+
+
 # ============================================================
 # 🚀 BOT ONLINE
 # ============================================================
@@ -530,6 +663,24 @@ async def on_ready():
 # --------------------------------------------------------
 # COMMAND ERROR
 # --------------------------------------------------------
+
+@bot.event
+async def on_command_error(ctx, error):
+
+    logging.warning(
+        f"COMMAND ERROR | "
+        f"Command: {ctx.message.content} | "
+        f"Error: {type(error).__name__} | "
+        f"Detail: {error}"
+    )
+
+    if isinstance(error, commands.CommandNotFound):
+
+        await ctx.send(
+            f"❌ Command `{ctx.message.content}` tidak ditemukan."
+        )
+
+        return
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -745,6 +896,21 @@ async def check_news():
                         news
                     )
 
+                    # --------------------------------------------
+                    # GAME8 CHAMPIONS MEETING
+                    # --------------------------------------------
+
+                    if is_champions_meeting_news(news):
+
+                        logging.info(
+                            f"🏆 Champions Meeting terdeteksi | "
+                            f"News ID: {news_id}"
+                        )
+
+                        await send_game8_update(
+                            channel
+                        )
+
                     guild_sent_news[guild_id].add(
                         news_id
                     )
@@ -880,6 +1046,12 @@ async def help_command(ctx):
         inline=False
     )
 
+    embed.add_field(
+        name="📖 !guide",
+        value="Menampilkan Game8 Guide Champions Meeting. ",
+        inline=False
+    )
+
     embed.set_footer(
         text="Diamond • Fan-made Timeline • Not affiliated with Cygames "
     )
@@ -929,6 +1101,17 @@ async def testnews(ctx, news_id: int = None):
         ctx.channel,
         news
     )
+
+    if is_champions_meeting_news(news):
+
+        logging.info(
+            f"🏆 Champions Meeting terdeteksi | "
+            f"News ID: {news_id}"
+    )
+        await send_game8_update(
+            ctx.channel
+        )
+
 
     logging.info(
         f"🧪 Test news dikirim: {news['title']}"
@@ -1009,7 +1192,7 @@ async def latest(ctx):
         )
 
     embed.set_footer(
-        text="Diamond • Fan-made Timeline • Not affiliated with Cygames "
+        text="Diamond Fanmade • Timeline • Not affiliated with Cygames "
     )
 
     await ctx.send(
@@ -1274,7 +1457,7 @@ async def channels(ctx):
         )
 
     embed.set_footer(
-        text="Diamond • Fan-made Timeline • Not affiliated with Cygames"
+        text="Diamond Fanmade • Timeline • Not affiliated with Cygames"
     )
 
     await ctx.send(
@@ -1426,7 +1609,6 @@ async def removechannel(ctx, category=None):
         f"⚙️ Configuration: "
         f"**{configured_channels}/{total_channels} channels**"
     )
-
 
 
 # ============================================================
