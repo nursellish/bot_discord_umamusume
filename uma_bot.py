@@ -12,6 +12,8 @@ from dotenv import load_dotenv
 from scraper import get_news, create_preview
 from scraper_guide import get_game8_data
 
+from views.guide_view import GuideView
+
 from database import ( 
     load_sent_news, 
     save_sent_news, 
@@ -89,76 +91,57 @@ UMA_COLOR = discord.Color.from_str("#00C3A5")
 
 def get_category(title, message):
 
-    text = f"{title} {message}".lower()
-
+    title_lower = title.lower()
 
     # -----------------------------
     # 🏆 CHAMPIONS MEETING
     # -----------------------------
-    
-    if any(keyword in text for keyword in [
+    if any(keyword in title_lower for keyword in [
         "champions meeting",
         "champion meeting"
     ]):
-    
         return "🏆 Champions Meeting"
-
 
     # -----------------------------
     # 🏇 LEGEND RACE
     # -----------------------------
-    
-    if "legend race" in text:
-    
+    if "legend race" in title_lower:
         return "🏇 Legend Race"
-
-
-    # -----------------------------
-    # 🎉 EVENT
-    # -----------------------------
-
-    if "story event" in text:
-
-        return "🎉 Event"
-
 
     # -----------------------------
     # 🎟️ GACHA
     # -----------------------------
-
-    if any(keyword in text for keyword in [
+    if any(keyword in title_lower for keyword in [
+        "spotlight",
         "pickup",
-        "gacha",
-        "scout"
+        "gacha"
     ]):
-
         return "🎟️ Gacha / Banner"
 
+    # -----------------------------
+    # 🎉 EVENT
+    # -----------------------------
+    if "event" in title_lower:
+        return "🎉 Event"
 
     # -----------------------------
     # 🎁 CAMPAIGN
     # -----------------------------
-    
-    if any(keyword in text for keyword in [
+    if any(keyword in title_lower for keyword in [
         "celebration",
         "campaign",
         "bonus rewards"
     ]):
-    
         return "🎁 Campaign"
-
 
     # -----------------------------
     # 🔧 UPDATE
     # -----------------------------
-
-    if any(keyword in text for keyword in [
+    if any(keyword in title_lower for keyword in [
         "update",
         "new functions"
     ]):
-
         return "🔧 Game Update"
-
 
     return "📰 Official News"
 
@@ -1046,6 +1029,11 @@ async def help_command(ctx):
         inline=False
     )
 
+    embed.add_field(
+        name="📖 !guide",
+        value="Menampilkan daftar skill.",
+        inline=False
+    )
 
     embed.set_footer(
         text="Diamond Fanmade • Timeline • Not affiliated with Cygames "
@@ -1070,7 +1058,7 @@ async def testnews(ctx, news_id: int = None):
         )
         return
 
-    news_list = get_news(limit=50)
+    news_list = get_news(limit=10)
 
     if not news_list:
         await ctx.send("❌ Tidak ada berita dari API.")
@@ -1603,6 +1591,66 @@ async def removechannel(ctx, category=None):
         f"📂 Kategori: **{CHANNEL_CATEGORY[category]}**\n\n"
         f"⚙️ Configuration: "
         f"**{configured_channels}/{total_channels} channels**"
+    )
+
+
+@bot.command(name="guide")
+async def guide(ctx):
+
+    logging.info(
+        f"📖 !guide dipanggil | "
+        f"User: {ctx.author} | "
+        f"Guild: {ctx.guild}"
+    )
+
+    data = get_game8_data()
+
+    if not data:
+        await ctx.send(
+            "❌ Data Game8 tidak berhasil diambil."
+        )
+        return
+
+    # logging.info(
+    #     f"🃏 Sample Decks: "
+    #     f"{data['sample_decks']}"
+    # )
+
+    # logging.info(
+    #     f"👥 Parent Decks: "
+    #     f"{data['parent_decks']}"
+    # )
+
+    embed = discord.Embed(
+        title=(
+            f"🏆 "
+            f"{data['current_cup']} Guide"
+        ),
+        description=(
+            "Pilih kategori skill "
+            "yang ingin kamu lihat "
+            "menggunakan tombol di bawah."
+        ),
+        color=discord.Color.from_str(
+            "#5865F2"
+        )
+    )
+
+    embed.set_author(
+        name=(
+            "Diamond Fanmade • Guide"
+        )
+    )
+
+    embed.set_footer(
+        text=(
+            "Diamond Fanmade • Timeline • Not affiliated with Cygames"
+        )
+    )
+
+    await ctx.send(
+        embed=embed,
+        view=GuideView(data)
     )
 
 

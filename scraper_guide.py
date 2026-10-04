@@ -1,3 +1,5 @@
+import html
+
 import requests
 import logging
 from scraper import get_news
@@ -2436,6 +2438,18 @@ def get_game8_data():
     sample_decks = extract_all_sample_decks(
         sample_table
     )
+    for deck in sample_decks:
+        print("\nSTYLE:", deck["style"])
+    
+        print(
+            "STAMINA:",
+            len(deck["stamina_setup"])
+        )
+    
+        print(
+            "SPEED/WIT:",
+            len(deck["speed_wit_option"])
+        )
 
     parent_decks = extract_all_parent_decks(
         parent_table
@@ -2444,10 +2458,10 @@ def get_game8_data():
     map_url = extract_race_map(
         guide_soup
     )
-    logging.info(
-    f"🖼️ Game8 Map URL: {map_url}"
-)
 
+    logging.info(
+        f"🖼️ Game8 Map URL: {map_url}"
+    )
 
     # ========================================================
     # FINAL DATA
@@ -2540,9 +2554,3 @@ if __name__ == "__main__":
 
     print("\nPARENT DECKS:")
     print(len(data["parent_decks"]))
-
-
-
-
-
-
