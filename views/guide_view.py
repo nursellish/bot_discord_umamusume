@@ -55,8 +55,7 @@ def format_skill_embed(
 
     embed.set_footer(
         text=(
-            "Diamond Fanmade • Timeline • "
-            "Not affiliated with Cygames"
+            "Diamond Fanmade • Timeline • Not affiliated with Cygames "
         )
     )
 
@@ -965,8 +964,7 @@ class GuideView(discord.ui.View):
 
         embed.set_footer(
             text=(
-                "Source: Game8 • "
-                "Fan-made integration"
+                "Diamond Fanmade • Timeline • Not affiliated with Cygames"
             )
         )
 
