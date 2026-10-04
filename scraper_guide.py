@@ -2438,18 +2438,6 @@ def get_game8_data():
     sample_decks = extract_all_sample_decks(
         sample_table
     )
-    for deck in sample_decks:
-        print("\nSTYLE:", deck["style"])
-    
-        print(
-            "STAMINA:",
-            len(deck["stamina_setup"])
-        )
-    
-        print(
-            "SPEED/WIT:",
-            len(deck["speed_wit_option"])
-        )
 
     parent_decks = extract_all_parent_decks(
         parent_table
