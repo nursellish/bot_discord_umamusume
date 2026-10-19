@@ -2041,18 +2041,24 @@ def get_game8_data(force_refresh=False):
     # GAME8 PAGE
     # ========================================================
 
-    game8_response = requests.get(
-        GAME8_URL,
-        headers=HEADERS,
-        timeout=20
-    )
+    try:
+        game8_response = requests.get(
+            GAME8_URL,
+            headers=HEADERS,
+            timeout=20
+        )
 
-    game8_response.raise_for_status()
+        game8_response.raise_for_status()
 
-    game8_soup = BeautifulSoup(
-        game8_response.text,
-        "html.parser"
-    )
+        game8_soup = BeautifulSoup(
+            game8_response.text,
+            "html.parser"
+        )
+    except requests.exceptions.RequestException as error:
+        logging.error(
+            f"Gagal mengambil halaman utama Game8: {error}"
+        )
+        return None
 
 
     # ========================================================
@@ -2176,20 +2182,26 @@ def get_game8_data(force_refresh=False):
                     + guide_url
                 )
 
-            guide_response = requests.get(
-                guide_url,
-                headers=HEADERS,
-                timeout=20
-            )
+            try:
+                guide_response = requests.get(
+                    guide_url,
+                    headers=HEADERS,
+                    timeout=20
+                )
 
-            guide_response.raise_for_status()
+                guide_response.raise_for_status()
 
-            guide_soup = BeautifulSoup(
-                guide_response.text,
-                "html.parser"
-            )
+                guide_soup = BeautifulSoup(
+                    guide_response.text,
+                    "html.parser"
+                )
 
-            break    
+                break
+            except requests.exceptions.RequestException as error:
+                logging.error(
+                    f"Gagal mengambil halaman panduan Game8 ({guide_url}): {error}"
+                )
+                continue    
 
 
     # ========================================================
