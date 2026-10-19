@@ -1,4 +1,5 @@
 import os
+import asyncio
 import logging
 import sys
 import database
@@ -440,21 +441,23 @@ async def send_game8_update(channel):
         "🎮 Mengambil data Game8..."
     )
 
-    data = get_game8_data()
+    data = await asyncio.to_thread(
+        get_game8_data
+    )
 
-    if not data:
+    if not data or not data.get("guide_url"):
 
         logging.warning(
-            "❌ Data Game8 kosong."
+            "❌ Data Game8 kosong atau panduan belum tersedia."
         )
 
         return
 
     logging.info(
         f"✅ Data Game8 berhasil | "
-        f"Cup: {data['current_cup']} | "
-        f"Tier: {len(data['tier_characters'])} | "
-        f"Recommended: {len(data['recommended_characters'])}"
+        f"Cup: {data.get('current_cup')} | "
+        f"Tier: {len(data.get('tier_characters', []))} | "
+        f"Recommended: {len(data.get('recommended_characters', []))}"
     )
 
     embed = format_game8_message(
@@ -472,11 +475,14 @@ async def send_game8_update(channel):
 
 def is_champions_meeting_news(news):
 
-    title = news["title"]
+    title = news.get("title", "")
 
     result = (
         "The race event Champions Meeting:" in title
-        and "is coming" in title
+        and any(keyword in title for keyword in [
+            "is coming",
+            "is here!"
+        ])
     )
 
     logging.info(
@@ -543,7 +549,7 @@ def format_periods(periods):
 def format_game8_message(data):
 
     embed = discord.Embed(
-        title=f"🏆 {data['current_cup']}",
+        title=f"🏆 {data.get('current_cup', 'Champions Meeting')}",
         color=discord.Color.from_str("#5865F2")
     )
 
@@ -551,45 +557,35 @@ def format_game8_message(data):
         name="Diamond Fanmade • Guide"
     )
 
-    embed.set_image(
-        url=data["map_url"]
-    )
+    if data.get("map_url"):
+        embed.set_image(
+            url=data["map_url"]
+        )
 
+    stat_vals = data.get("stat_baselines", {}).get("values", {})
     embed.add_field(
         name="📊 Stat Baselines",
         value=(
-            f"👟 **Speed:** "
-            f"{data['stat_baselines']['values']['Speed']}\n"
-
-            f"❤️ **Stamina:** "
-            f"{data['stat_baselines']['values']['Stamina']}\n"
-
-            f"💪 **Power:** "
-            f"{data['stat_baselines']['values']['Power']}\n"
-
-            f"🔥 **Guts:** "
-            f"{data['stat_baselines']['values']['Guts']}\n"
-
-            f"🎓 **Wit:** "
-            f"{data['stat_baselines']['values']['Wit']}"
+            f"👟 **Speed:** {stat_vals.get('Speed', '-')}\n"
+            f"❤️ **Stamina:** {stat_vals.get('Stamina', '-')}\n"
+            f"💪 **Power:** {stat_vals.get('Power', '-')}\n"
+            f"🔥 **Guts:** {stat_vals.get('Guts', '-')}\n"
+            f"🎓 **Wit:** {stat_vals.get('Wit', '-')}"
         ),
         inline=False
     )
 
+    race_conds = data.get("race_conditions", {})
+    dist = race_conds.get("Distance", {})
+    track = race_conds.get("Track", {})
+    style = race_conds.get("Style", {})
+
     embed.add_field(
         name="🏁 Race Conditions",
         value=(
-            f"📏 **Distance:** "
-            f"{data['race_conditions']['Distance']['name']} "
-            f"({data['race_conditions']['Distance']['rank']})\n"
-            
-            f"🌱 **Track:** "
-            f"{data['race_conditions']['Track']['name']} "
-            f"({data['race_conditions']['Track']['rank']})\n"
-            
-            f"🏇 **Style:** "
-            f"{data['race_conditions']['Style']['name']} "
-            f"({data['race_conditions']['Style']['rank']})"
+            f"📏 **Distance:** {dist.get('name', '-')} ({dist.get('rank', '-')})\n"
+            f"🌱 **Track:** {track.get('name', '-')} ({track.get('rank', '-')})\n"
+            f"🏇 **Style:** {style.get('name', '-')} ({style.get('rank', '-')})"
         ),
         inline=False
     )
@@ -597,7 +593,7 @@ def format_game8_message(data):
     embed.add_field(
         name="🎯 Recommended Characters",
         value=(
-            f"**{len(data['recommended_characters'])}** characters"
+            f"**{len(data.get('recommended_characters', []))}** characters"
         ),
         inline=True
     )
@@ -605,7 +601,7 @@ def format_game8_message(data):
     embed.add_field(
         name="⭐ Tier Characters",
         value=(
-            f"**{len(data['tier_characters'])}** characters"
+            f"**{len(data.get('tier_characters', []))}** characters"
         ),
         inline=True
     )
@@ -613,7 +609,6 @@ def format_game8_message(data):
     embed.set_footer(
         text="Diamond Fanmade • Timeline • Not affiliated with Cygames"
     )
-
 
     return embed
 
@@ -650,27 +645,13 @@ async def on_ready():
 @bot.event
 async def on_command_error(ctx, error):
 
-    logging.warning(
-        f"COMMAND ERROR | "
-        f"Command: {ctx.message.content} | "
-        f"Error: {type(error).__name__} | "
-        f"Detail: {error}"
+    command_name = (
+        ctx.message.content.split()[0]
+        if ctx.message.content
+        else "Unknown"
     )
 
     if isinstance(error, commands.CommandNotFound):
-
-        await ctx.send(
-            f"❌ Command `{ctx.message.content}` tidak ditemukan."
-        )
-
-        return
-
-@bot.event
-async def on_command_error(ctx, error):
-
-    if isinstance(error, commands.CommandNotFound):
-    
-        command_name = ctx.message.content.split()[0]
 
         await ctx.send(
             f"❌ Command `{command_name}` tidak ditemukan."
@@ -696,10 +677,20 @@ async def on_command_error(ctx, error):
 
         return
 
+    if isinstance(error, commands.NoPrivateMessage):
+
+        await ctx.send(
+            "🚫 Command ini hanya dapat digunakan "
+            "di dalam server (bukan via DM)."
+        )
+
+        return
+
     logging.error(
-        f"Command error | "
-        f"Command: {ctx.command} | "
-        f"Error: {error}"
+        f"COMMAND ERROR | "
+        f"Command: {ctx.command or command_name} | "
+        f"Error: {type(error).__name__} | "
+        f"Detail: {error}"
     )
 
 
@@ -961,9 +952,15 @@ bot.remove_command("help")
 @bot.command(name="help")
 async def help_command(ctx):
 
+    guild_display = (
+        ctx.guild.id
+        if ctx.guild
+        else "DM"
+    )
+
     logging.info(
         f"HELP dipanggil | "
-        f"Guild: {ctx.guild.id} | "
+        f"Guild: {guild_display} | "
         f"User: {ctx.author.id} | "
         f"Message ID: {ctx.message.id}"
     )
@@ -1216,16 +1213,21 @@ async def status(ctx):
         inline=False
     )
 
-    guild_id = str(ctx.guild.id)
+    guild_id = (
+        str(ctx.guild.id)
+        if ctx.guild
+        else None
+    )
 
-    guild_news = guild_sent_news.get(
-        guild_id,
-        set()
+    guild_news = (
+        guild_sent_news.get(guild_id, set())
+        if guild_id
+        else set()
     )
 
     embed.add_field(
         name="📨 Sent to This Server",
-        value=str(len(guild_news)),
+        value=str(len(guild_news)) if guild_id else "N/A (DM)",
         inline=True
     )
 
@@ -1368,6 +1370,7 @@ async def stats(ctx):
 
 
 @bot.command(name="channels")
+@commands.guild_only()
 @commands.has_permissions(manage_guild=True)
 async def channels(ctx):
 
@@ -1449,6 +1452,7 @@ async def channels(ctx):
 
 
 @bot.command(name="setchannel")
+@commands.guild_only()
 @commands.has_permissions(manage_guild=True)
 async def setchannel(ctx, category=None):
 
@@ -1523,6 +1527,7 @@ async def setchannel(ctx, category=None):
 
 
 @bot.command(name="removechannel")
+@commands.guild_only()
 @commands.has_permissions(manage_guild=True)
 async def removechannel(ctx, category=None):
 
@@ -1603,28 +1608,22 @@ async def guide(ctx):
         f"Guild: {ctx.guild}"
     )
 
-    data = get_game8_data()
+    async with ctx.typing():
+        data = await asyncio.to_thread(
+            get_game8_data
+        )
 
-    if not data:
+    if not data or not data.get("guide_url"):
         await ctx.send(
-            "❌ Data Game8 tidak berhasil diambil."
+            "❌ Data Game8 tidak berhasil diambil atau "
+            "panduan turnamen ini belum tersedia."
         )
         return
-
-    # logging.info(
-    #     f"🃏 Sample Decks: "
-    #     f"{data['sample_decks']}"
-    # )
-
-    # logging.info(
-    #     f"👥 Parent Decks: "
-    #     f"{data['parent_decks']}"
-    # )
 
     embed = discord.Embed(
         title=(
             f"🏆 "
-            f"{data['current_cup']} Guide"
+            f"{data.get('current_cup', 'Champions Meeting')} Guide"
         ),
         description=(
             "Pilih kategori skill "
@@ -1658,11 +1657,12 @@ async def guide(ctx):
 # ▶️ START BOT
 # ============================================================
 
-if not TOKEN:
+if __name__ == "__main__":
 
-    raise RuntimeError(
-        "DISCORD_TOKEN belum ditemukan di .env"
-    )
+    if not TOKEN:
 
+        raise RuntimeError(
+            "DISCORD_TOKEN belum ditemukan di .env"
+        )
 
-bot.run(TOKEN)
+    bot.run(TOKEN)

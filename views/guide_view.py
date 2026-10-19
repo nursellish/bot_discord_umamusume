@@ -91,20 +91,25 @@ def format_guide_overview(data):
     # Race Conditions
     # --------------------------------------------------------
 
+    race_conds = data.get("race_conditions", {})
+    dist = race_conds.get("Distance", {})
+    track = race_conds.get("Track", {})
+    style = race_conds.get("Style", {})
+
     embed.add_field(
         name="🏁 Race Conditions",
         value=(
             f"📏 **Distance:** "
-            f"{data['race_conditions']['Distance']['name']} "
-            f"({data['race_conditions']['Distance']['rank']})\n"
+            f"{dist.get('name', '-')} "
+            f"({dist.get('rank', '-')})\n"
 
             f"🌱 **Track:** "
-            f"{data['race_conditions']['Track']['name']} "
-            f"({data['race_conditions']['Track']['rank']})\n"
+            f"{track.get('name', '-')} "
+            f"({track.get('rank', '-')})\n"
 
             f"🏇 **Style:** "
-            f"{data['race_conditions']['Style']['name']} "
-            f"({data['race_conditions']['Style']['rank']})"
+            f"{style.get('name', '-')} "
+            f"({style.get('rank', '-')})"
         ),
         inline=False
     )
@@ -113,23 +118,16 @@ def format_guide_overview(data):
     # Stat Baselines
     # --------------------------------------------------------
 
+    stat_vals = data.get("stat_baselines", {}).get("values", {})
+
     embed.add_field(
         name="📊 Stat Baselines",
         value=(
-            f"👟 **Speed:** "
-            f"{data['stat_baselines']['values']['Speed']}\n"
-
-            f"❤️ **Stamina:** "
-            f"{data['stat_baselines']['values']['Stamina']}\n"
-
-            f"💪 **Power:** "
-            f"{data['stat_baselines']['values']['Power']}\n"
-
-            f"🔥 **Guts:** "
-            f"{data['stat_baselines']['values']['Guts']}\n"
-
-            f"🧠 **Wit:** "
-            f"{data['stat_baselines']['values']['Wit']}"
+            f"👟 **Speed:** {stat_vals.get('Speed', '-')}\n"
+            f"❤️ **Stamina:** {stat_vals.get('Stamina', '-')}\n"
+            f"💪 **Power:** {stat_vals.get('Power', '-')}\n"
+            f"🔥 **Guts:** {stat_vals.get('Guts', '-')}\n"
+            f"🧠 **Wit:** {stat_vals.get('Wit', '-')}"
         ),
         inline=False
     )
@@ -138,23 +136,16 @@ def format_guide_overview(data):
     # Open League Stats
     # --------------------------------------------------------
 
+    open_stats = data.get("open_league_stats", {})
+
     embed.add_field(
         name="🏟️ Open League Stats",
         value=(
-            f"👟 **Speed:** "
-            f"{data['open_league_stats']['Speed']}\n"
-
-            f"❤️ **Stamina:** "
-            f"{data['open_league_stats']['Stamina']}\n"
-
-            f"💪 **Power:** "
-            f"{data['open_league_stats']['Power']}\n"
-
-            f"🔥 **Guts:** "
-            f"{data['open_league_stats']['Guts']}\n"
-
-            f"🧠 **Wit:** "
-            f"{data['open_league_stats']['Wit']}"
+            f"👟 **Speed:** {open_stats.get('Speed', '-')}\n"
+            f"❤️ **Stamina:** {open_stats.get('Stamina', '-')}\n"
+            f"💪 **Power:** {open_stats.get('Power', '-')}\n"
+            f"🔥 **Guts:** {open_stats.get('Guts', '-')}\n"
+            f"🧠 **Wit:** {open_stats.get('Wit', '-')}"
         ),
         inline=False
     )
@@ -166,7 +157,7 @@ def format_guide_overview(data):
     embed.add_field(
         name="🎯 Recommended Characters",
         value=(
-            f"**{len(data['recommended_characters'])}** "
+            f"**{len(data.get('recommended_characters', []))}** "
             f"characters"
         ),
         inline=True
@@ -175,7 +166,7 @@ def format_guide_overview(data):
     embed.add_field(
         name="⭐ Tier Characters",
         value=(
-            f"**{len(data['tier_characters'])}** "
+            f"**{len(data.get('tier_characters', []))}** "
             f"characters"
         ),
         inline=True
@@ -203,15 +194,15 @@ def format_blue_sparks_embed(data):
         )
     )
 
-    sparks = data["blue_sparks"]
+    sparks = data.get("blue_sparks", {})
 
     embed.add_field(
         name="📌 Recommendation",
-        value=sparks["recommendation"],
+        value=sparks.get("recommendation", "-"),
         inline=False
     )
 
-    if sparks["note"]:
+    if sparks.get("note"):
 
         embed.add_field(
             name="📝 Note",

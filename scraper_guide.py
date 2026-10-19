@@ -1,5 +1,6 @@
 import html
-
+import re
+import time
 import requests
 import logging
 from scraper import get_news
@@ -15,6 +16,11 @@ GAME8_URL = (
 HEADERS = {
     "User-Agent": "Mozilla/5.0"
 }
+
+_game8_cache = None
+_game8_cache_time = 0
+CACHE_TTL = 900  # Cache 15 menit
+
 
 
 # ============================================================
@@ -885,6 +891,24 @@ def extract_stat_baselines(table):
 
         break
 
+    if "values" not in result:
+        result["values"] = {
+            "Speed": "-",
+            "Stamina": "-",
+            "Power": "-",
+            "Guts": "-",
+            "Wit": "-"
+        }
+
+    if "stats" not in result:
+        result["stats"] = [
+            "Speed",
+            "Stamina",
+            "Power",
+            "Guts",
+            "Wit"
+        ]
+
     return result
 
 
@@ -981,6 +1005,16 @@ def extract_open_league_stats(table):
         )
 
         break
+
+    for stat_name in [
+        "Speed",
+        "Stamina",
+        "Power",
+        "Guts",
+        "Wit"
+    ]:
+        if stat_name not in result:
+            result[stat_name] = "-"
 
     return result
 
@@ -1204,34 +1238,38 @@ def extract_race_conditions(table):
                     strip=True
                 )
 
-            text = cell.get_text(
+            cell_text = cell.get_text(
                 " ",
                 strip=True
             )
 
-            if rank:
-
-                text = text.replace(
-                    rank,
-                    "",
-                    1
-                ).strip()
-
             priority = None
 
-            if "Prio:" in text:
+            if "Prio:" in cell_text:
 
-                name, priority = text.split(
+                _, priority = cell_text.split(
                     "Prio:",
                     1
                 )
-
-                name = name.strip()
                 priority = priority.strip()
 
-            else:
+            # Ambil name secara bersih dari teks sebelum rank_element atau <br>
+            name_parts = []
+            for child in cell.contents:
+                if child == rank_element:
+                    break
+                if isinstance(child, str):
+                    name_parts.append(child)
+                elif getattr(child, "name", None) == "br":
+                    break
 
-                name = text
+            name = "".join(name_parts).strip()
+
+            if not name:
+                raw = cell_text.split("Prio:", 1)[0].strip()
+                if rank and raw.endswith(rank):
+                    raw = raw[:-len(rank)].strip()
+                name = raw
 
             result[header] = {
                 "name": name,
@@ -1240,6 +1278,18 @@ def extract_race_conditions(table):
             }
 
         break
+
+    for h in [
+        "Distance",
+        "Track",
+        "Style"
+    ]:
+        if h not in result:
+            result[h] = {
+                "name": "-",
+                "rank": "-",
+                "priority": None
+            }
 
     return result
 
@@ -1321,11 +1371,17 @@ def extract_blue_sparks(table):
             )
 
         result = {
-            "recommendation": recommendation,
+            "recommendation": recommendation or "-",
             "note": note
         }
 
         break
+
+    if "recommendation" not in result or not result["recommendation"]:
+        result["recommendation"] = "-"
+
+    if "note" not in result:
+        result["note"] = None
 
     return result
 
@@ -1972,7 +2028,14 @@ def extract_race_map(
 # MAIN SCRAPER
 # ============================================================
 
-def get_game8_data():
+def get_game8_data(force_refresh=False):
+
+    global _game8_cache, _game8_cache_time
+
+    now = time.time()
+    if not force_refresh and _game8_cache and (now - _game8_cache_time < CACHE_TTL):
+        logging.info("Memakai cache data Game8.")
+        return _game8_cache
 
     # ========================================================
     # GAME8 PAGE
@@ -2011,6 +2074,7 @@ def get_game8_data():
     )
 
     game8_guides = {}
+    cm_versions = {}
 
     for link in links:
 
@@ -2024,18 +2088,29 @@ def get_game8_data():
             ""
         )
 
-        if (
-            "Champions Meeting" in text
-            and "Umamusume-Pretty-Derby" in href
-            and "(CM" in text
-        ):
+        if "archives" not in href or not re.search(r"/archives/\d+", href):
+            continue
 
-            cup_name = text.split(
-                "(CM",
-                1
-            )[0].strip()
+        match = re.search(
+            r"([A-Za-z]+(?:\s+Cup)?)\s*(?:\d+)?\s*\(CM(\d+)\)",
+            text
+        )
 
-            game8_guides[cup_name] = href
+        if match:
+
+            base_cup = match.group(1).strip()
+
+            if not base_cup.endswith("Cup"):
+                base_cup += " Cup"
+
+            cm_num = int(match.group(2))
+
+            if base_cup not in cm_versions or cm_num > cm_versions[base_cup]:
+                cm_versions[base_cup] = cm_num
+                game8_guides[base_cup] = href
+                game8_guides[f"{base_cup} {cm_num}"] = href
+                raw_name = text.split("(CM", 1)[0].strip()
+                game8_guides[raw_name] = href
 
 
     # ========================================================
@@ -2060,14 +2135,14 @@ def get_game8_data():
 
         if " is here!" in cup_part:
 
-            current_cup = cup_part.replace(
+            cup_candidate = cup_part.replace(
                 " is here!",
                 ""
             ).strip()
 
         elif " is coming" in cup_part:
 
-            current_cup = cup_part.split(
+            cup_candidate = cup_part.split(
                 " is coming",
                 1
             )[0].strip()
@@ -2076,17 +2151,23 @@ def get_game8_data():
 
             continue
 
-        guide_url = game8_guides.get(
-            current_cup
+        if not current_cup:
+            current_cup = cup_candidate
+
+        candidate_url = game8_guides.get(
+            cup_candidate
         )
 
         logging.info(
             f"🏆 Game8 Cup Discovery | "
-            f"News: {current_cup} | "
-            f"Guide: {guide_url}"
+            f"News: {cup_candidate} | "
+            f"Guide: {candidate_url}"
         )
 
-        if guide_url:
+        if candidate_url:
+
+            current_cup = cup_candidate
+            guide_url = candidate_url
 
             if guide_url.startswith("/"):
 
@@ -2118,7 +2199,7 @@ def get_game8_data():
     if not guide_soup:
 
         return {
-            "current_cup": current_cup,
+            "current_cup": current_cup or "Champions Meeting",
             "guide_url": None,
             "map_url": None,
 
@@ -2131,11 +2212,33 @@ def get_game8_data():
             "recovery_skills": [],
             "debuff_skills": [],
 
-            "race_conditions": {},
-            "blue_sparks": {},
+            "race_conditions": {
+                "Distance": {"name": "-", "rank": "-", "priority": None},
+                "Track": {"name": "-", "rank": "-", "priority": None},
+                "Style": {"name": "-", "rank": "-", "priority": None}
+            },
+            "blue_sparks": {
+                "recommendation": "-",
+                "note": None
+            },
 
-            "stat_baselines": {},
-            "open_league_stats": {},
+            "stat_baselines": {
+                "stats": ["Speed", "Stamina", "Power", "Guts", "Wit"],
+                "values": {
+                    "Speed": "-",
+                    "Stamina": "-",
+                    "Power": "-",
+                    "Guts": "-",
+                    "Wit": "-"
+                }
+            },
+            "open_league_stats": {
+                "Speed": "-",
+                "Stamina": "-",
+                "Power": "-",
+                "Guts": "-",
+                "Wit": "-"
+            },
             "stat_priority": {},
 
             "sample_decks": [],
@@ -2244,137 +2347,37 @@ def get_game8_data():
 
 
     # --------------------------------------------------------
-    # SKILL SUBSECTIONS
+    # DYNAMIC SECTION TABLE HELPER
     # --------------------------------------------------------
 
-    green_heading = guide_soup.find(
-        "h3",
-        id="hm_301"
+    def find_section_table(keywords, table_index=0):
+        if isinstance(keywords, str):
+            keywords = [keywords]
+
+        for heading in guide_soup.find_all(["h2", "h3", "h4"]):
+            h_text = heading.get_text(" ", strip=True).lower()
+            if any(kw.lower() in h_text for kw in keywords):
+                tables = heading.find_all_next("table")
+                if len(tables) > table_index:
+                    return tables[table_index]
+        return None
+
+    green_table = find_section_table("Green Skills")
+    accel_table = find_section_table("Acceleration Skills")
+    speed_table = find_section_table("Speed Skills")
+    recovery_table = find_section_table("Recovery Skills")
+    debuff_table = find_section_table("Debuff Skills")
+    support_table = find_section_table(
+        ["Recommended Support Cards", "Support Cards"]
     )
-
-    green_table = None
-
-    if green_heading:
-
-        green_table = green_heading.find_next(
-            "table"
-        )
-
-
-    accel_heading = guide_soup.find(
-        "h3",
-        id="hm_302"
+    sample_table = (
+        find_section_table("Sample Deck", table_index=1)
+        or find_section_table("Sample Deck", table_index=0)
     )
-
-    accel_table = None
-
-    if accel_heading:
-
-        accel_table = accel_heading.find_next(
-            "table"
-        )
-
-
-    speed_heading = guide_soup.find(
-        "h3",
-        id="hm_303"
+    parent_table = find_section_table(
+        "Parent Deck",
+        table_index=0
     )
-
-    speed_table = None
-
-    if speed_heading:
-
-        speed_table = speed_heading.find_next(
-            "table"
-        )
-
-
-    recovery_heading = guide_soup.find(
-        "h3",
-        id="hm_304"
-    )
-
-    recovery_table = None
-
-    if recovery_heading:
-
-        recovery_table = recovery_heading.find_next(
-            "table"
-        )
-
-
-    debuff_heading = guide_soup.find(
-        "h3",
-        id="hm_305"
-    )
-
-    debuff_table = None
-
-    if debuff_heading:
-
-        debuff_table = debuff_heading.find_next(
-            "table"
-        )
-
-
-    # --------------------------------------------------------
-    # SUPPORT CARDS
-    # --------------------------------------------------------
-
-    support_heading = guide_soup.find(
-        "h3",
-        id="hm_501"
-    )
-
-    support_table = None
-
-    if support_heading:
-
-        support_table = support_heading.find_next(
-            "table"
-        )
-
-
-    # --------------------------------------------------------
-    # SAMPLE DECK
-    # --------------------------------------------------------
-
-    sample_heading = guide_soup.find(
-        id="hm_502"
-    )
-
-    sample_table = None
-
-    if sample_heading:
-
-        tables = sample_heading.find_all_next(
-            "table"
-        )
-
-        if len(tables) >= 2:
-
-            sample_table = tables[1]
-
-
-    # --------------------------------------------------------
-    # PARENT DECK
-    # --------------------------------------------------------
-
-    parent_heading = guide_soup.find(
-        id="hm_503"
-    )
-
-    parent_table = None
-
-    if parent_heading:
-
-        tables = parent_heading.find_all_next(
-            "table"
-        )
-
-        if tables:
-
-            parent_table = tables[0]
 
 
     # ========================================================
@@ -2503,6 +2506,10 @@ def get_game8_data():
 
         "parent_decks": parent_decks
     }
+
+    if guide_url:
+        _game8_cache = game8_data
+        _game8_cache_time = time.time()
 
     return game8_data
 
