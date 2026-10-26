@@ -10,7 +10,6 @@ from discord.ext import tasks, commands
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
-from aiohttp import web
 from scraper import get_news, create_preview
 from scraper_guide import get_game8_data
 
@@ -1655,35 +1654,8 @@ async def guide(ctx):
 
 
 # ============================================================
-# 🌐 WEB SERVER (RENDER KEEP-ALIVE)
-# ============================================================
-
-async def handle_ping(request):
-    return web.Response(text="UmaMusume Bot is alive and running! 🏇")
-
-
-async def start_web_server():
-    port = int(os.environ.get("PORT", 8080))
-    app = web.Application()
-    app.router.add_get("/", handle_ping)
-    app.router.add_get("/health", handle_ping)
-
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    logging.info(f"🌐 Keep-alive server running on port {port}")
-
-
-# ============================================================
 # ▶️ START BOT
 # ============================================================
-
-async def main():
-    async with bot:
-        await start_web_server()
-        await bot.start(TOKEN)
-
 
 if __name__ == "__main__":
 
@@ -1693,4 +1665,4 @@ if __name__ == "__main__":
             "DISCORD_TOKEN belum ditemukan di .env"
         )
 
-    asyncio.run(main())
+    bot.run(TOKEN)
