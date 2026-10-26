@@ -1,4 +1,5 @@
 import discord
+import re
 
 
 # ============================================================
@@ -185,6 +186,34 @@ def format_guide_overview(data):
 # BLUE SPARKS
 # ============================================================
 
+def format_blue_sparks_recommendation(text: str) -> str:
+    """
+    Mengonversi nama stat (Speed, Stamina, Power, Guts, Wit)
+    menjadi format Blue Spark 9★ (misal STA*9, PWR*9).
+    """
+    if not text or text == "-":
+        return "-"
+
+    mapping = {
+        r"\bspeed\b": ("👟 ", "SPD★9"),
+        r"\bstamina\b": ("❤️ ", "STA★9"),
+        r"\bpower\b": ("💪 ", "PWR★9"),
+        r"\bguts\b": ("🔥 ", "GUT★9"),
+        r"\bwit\b": ("🧠 ", "WIT★9"),
+        r"\bintelligence\b": ("🧠 ", "INT★9"),
+    }
+
+    res = text
+    for pattern, (emoji, spark_code) in mapping.items():
+        res = re.sub(
+            pattern,
+            f"{emoji}**{spark_code}**",
+            res,
+            flags=re.IGNORECASE
+        )
+    return res
+
+
 def format_blue_sparks_embed(data):
 
     embed = discord.Embed(
@@ -195,12 +224,21 @@ def format_blue_sparks_embed(data):
     )
 
     sparks = data.get("blue_sparks", {})
+    raw_rec = sparks.get("recommendation", "-")
+    formatted_rec = format_blue_sparks_recommendation(raw_rec)
 
     embed.add_field(
-        name="📌 Recommendation",
-        value=sparks.get("recommendation", "-"),
+        name="📌 Recommended Sparks (Factor 9★)",
+        value=formatted_rec,
         inline=False
     )
+
+    if raw_rec and raw_rec != "-" and raw_rec != formatted_rec:
+        embed.add_field(
+            name="📖 Original Guideline",
+            value=raw_rec,
+            inline=False
+        )
 
     if sparks.get("note"):
 
@@ -217,6 +255,7 @@ def format_blue_sparks_embed(data):
     )
 
     return embed
+
 
 
 # ============================================================
