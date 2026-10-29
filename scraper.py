@@ -14,6 +14,9 @@ NEWS_URL = "https://umamusume.com/api/ajax/pr_info_index?format=json"
 
 def clean_message(message):
 
+    if not message:
+        return ""
+
     soup = BeautifulSoup(
         message,
         "html.parser"
@@ -41,11 +44,13 @@ def extract_periods(message):
         if not line:
             continue
 
-        if line.lower().endswith(
+        stripped_for_label = line.strip(" :[]■•*")
+
+        if stripped_for_label.lower().endswith(
             ("period", "periods")
         ):
 
-            current_label = line
+            current_label = stripped_for_label
             pending_label = None
             continue
 
@@ -188,6 +193,11 @@ def parse_period(period_text):
 
 def create_preview(message):
 
+    if not message or not message.strip():
+        return "No preview available."
+
+    message = message.strip()
+
     max_length = 500
 
     if len(message) <= max_length:
@@ -254,12 +264,24 @@ def get_news(limit=10):
         f"STATUS API: {response.status_code}"
     )
 
+    try:
+        data = response.json()
+    except ValueError as error:
+        logging.error(f"Gagal parse JSON dari API news: {error}")
+        return None
 
-    data = response.json()
+    if not isinstance(data, dict):
+        logging.error("Format data API news bukan dict.")
+        return None
+
+    information_list = data.get("information_list")
+    if not isinstance(information_list, list):
+        logging.error("Key 'information_list' tidak ditemukan atau bukan list.")
+        return []
 
     news_list = []
 
-    for news in data["information_list"]:
+    for news in information_list:
 
         cleaned_message = clean_message(
             news["message"]

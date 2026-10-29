@@ -1,5 +1,6 @@
 import json
 import os
+import time
 import logging
 
 
@@ -15,7 +16,7 @@ GUILD_SENT_NEWS_PATH = "data/guild_sent_news.json"
 
 def _atomic_json_dump(file_path, data):
     os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
-    temp_path = f"{file_path}.tmp"
+    temp_path = f"{file_path}.{os.getpid()}.tmp"
     with open(temp_path, "w", encoding="utf-8") as file:
         json.dump(
             data,
@@ -23,7 +24,28 @@ def _atomic_json_dump(file_path, data):
             ensure_ascii=False,
             indent=2
         )
-    os.replace(temp_path, file_path)
+
+    # Retry jika file terkunci sementara oleh Windows / OneDrive / Antivirus
+    for attempt in range(8):
+        try:
+            os.replace(temp_path, file_path)
+            return
+        except PermissionError:
+            if attempt == 7:
+                if os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except OSError:
+                        pass
+                raise
+            time.sleep(0.15)
+        except Exception:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+            raise
 
 
 # ============================== 
@@ -43,8 +65,11 @@ def load_sent_news():
     try:
         with open(FILE_PATH, "r", encoding="utf-8") as file:
             data = json.load(file)
+        if not isinstance(data, (list, set, tuple)):
+            logging.warning("Data sent_news tidak berbentuk list. Menggunakan database kosong.")
+            return set()
         return set(data)
-    except json.JSONDecodeError as error:
+    except (json.JSONDecodeError, TypeError, ValueError) as error:
         logging.error(
             f"Database sent_news rusak: {error}. Menggunakan database kosong."
         )
@@ -80,8 +105,12 @@ def load_guild_config():
             "r",
             encoding="utf-8"
         ) as file:
-            return json.load(file)
-    except json.JSONDecodeError as error:
+            data = json.load(file)
+            if not isinstance(data, dict):
+                logging.error("Data guild_config bukan dict. Menggunakan konfigurasi kosong.")
+                return {}
+            return data
+    except (json.JSONDecodeError, TypeError, ValueError) as error:
         logging.error(
             f"Database guild_config rusak: {error}. Menggunakan konfigurasi kosong."
         )
@@ -119,7 +148,7 @@ def load_guild_sent_news():
         ) as file:
             data = json.load(file)
 
-    except json.JSONDecodeError as error:
+    except (json.JSONDecodeError, TypeError, ValueError) as error:
         guild_sent_news_corrupted = True
 
         logging.error(
@@ -131,12 +160,18 @@ def load_guild_sent_news():
         return {}
 
     if not isinstance(data, dict):
+        guild_sent_news_corrupted = True
+        logging.warning("Data guild_sent_news bukan dict. Masuk recovery mode.")
         return {}
 
-    return {
-        guild_id: set(news_ids)
-        for guild_id, news_ids in data.items()
-    }
+    result = {}
+    for guild_id, news_ids in data.items():
+        if isinstance(news_ids, (list, set, tuple)):
+            result[str(guild_id)] = set(news_ids)
+        else:
+            result[str(guild_id)] = set()
+
+    return result
 
 
 def save_guild_sent_news(guild_sent_news):

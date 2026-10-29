@@ -1672,6 +1672,9 @@ def extract_tier_characters(row):
             ""
         ).strip()
 
+    if not rank:
+        rank = rank_cell.get_text(" ", strip=True).replace("Rank", "").strip() or None
+
     characters = []
 
     character_links = character_cell.find_all(
@@ -1727,6 +1730,12 @@ def extract_tier_characters(row):
                     ":",
                     ""
                 ).strip()
+
+        if not name:
+            if character_image and character_image.get("alt"):
+                name = character_image.get("alt").strip()
+            else:
+                name = character_link.get_text(" ", strip=True) or None
 
         characters.append({
             "rank": rank,
@@ -2138,52 +2147,41 @@ def get_game8_data(force_refresh=False):
 
     for news in news_list:
 
-        title = news["title"]
+        title = news.get("title", "")
 
-        if "champions meeting:" not in title.lower():
+        if "champions meeting" not in title.lower():
             continue
 
-        cup_part = re.split(
-            r"champions meeting:\s*",
+        match = re.search(
+            r"\b([A-Za-z]+)\s+Cup(?:\s+(\d+))?\b",
             title,
-            flags=re.IGNORECASE
-        )[1].strip()
+            re.IGNORECASE
+        )
 
-        cup_candidate = cup_part
-        for suffix in [
-            " is here!",
-            " is here",
-            " has begun!",
-            " has begun",
-        ]:
-            if suffix in cup_candidate.lower():
-                idx = cup_candidate.lower().find(suffix)
-                cup_candidate = cup_candidate[:idx].strip()
-                break
-
-        if " is coming" in cup_candidate.lower():
-            idx = cup_candidate.lower().find(" is coming")
-            cup_candidate = cup_candidate[:idx].strip()
-
-        if not cup_candidate:
+        if not match:
             continue
+
+        base_cup = f"{match.group(1).capitalize()} Cup"
+        cup_num = match.group(2)
+        full_cup = f"{base_cup} {cup_num}" if cup_num else base_cup
 
         if not current_cup:
-            current_cup = cup_candidate
+            current_cup = full_cup
 
-        candidate_url = game8_guides.get(
-            cup_candidate
+        candidate_url = (
+            game8_guides.get(full_cup)
+            or game8_guides.get(base_cup)
         )
 
         logging.info(
             f"🏆 Game8 Cup Discovery | "
-            f"News: {cup_candidate} | "
+            f"News: {full_cup} | "
             f"Guide: {candidate_url}"
         )
 
         if candidate_url:
 
-            current_cup = cup_candidate
+            current_cup = full_cup
             guide_url = candidate_url
 
             if guide_url.startswith("/"):
@@ -2221,7 +2219,7 @@ def get_game8_data(force_refresh=False):
 
     if not guide_soup:
 
-        return {
+        data_empty = {
             "current_cup": current_cup or "Champions Meeting",
             "guide_url": None,
             "map_url": None,
@@ -2267,6 +2265,10 @@ def get_game8_data(force_refresh=False):
             "sample_decks": [],
             "parent_decks": []
         }
+        # Cache hasil negatif sebentar (2 menit) agar tidak membebani server
+        _game8_cache = data_empty
+        _game8_cache_time = time.time() - CACHE_TTL + 120
+        return data_empty
 
 
     # ========================================================
@@ -2328,6 +2330,22 @@ def get_game8_data(force_refresh=False):
 
 
     # --------------------------------------------------------
+    # DYNAMIC SECTION TABLE HELPER
+    # --------------------------------------------------------
+
+    def find_section_table(keywords, table_index=0):
+        if isinstance(keywords, str):
+            keywords = [keywords]
+
+        for heading in guide_soup.find_all(["h2", "h3", "h4"]):
+            h_text = heading.get_text(" ", strip=True).lower()
+            if any(kw.lower() in h_text for kw in keywords):
+                tables = heading.find_all_next("table")
+                if len(tables) > table_index:
+                    return tables[table_index]
+        return None
+
+    # --------------------------------------------------------
     # STAT GUIDELINES
     # --------------------------------------------------------
 
@@ -2347,22 +2365,8 @@ def get_game8_data(force_refresh=False):
             "table"
         )
 
-
-    # --------------------------------------------------------
-    # DYNAMIC SECTION TABLE HELPER
-    # --------------------------------------------------------
-
-    def find_section_table(keywords, table_index=0):
-        if isinstance(keywords, str):
-            keywords = [keywords]
-
-        for heading in guide_soup.find_all(["h2", "h3", "h4"]):
-            h_text = heading.get_text(" ", strip=True).lower()
-            if any(kw.lower() in h_text for kw in keywords):
-                tables = heading.find_all_next("table")
-                if len(tables) > table_index:
-                    return tables[table_index]
-        return None
+    if not stat_table:
+        stat_table = find_section_table("Stat Guidelines")
 
     green_table = find_section_table("Green Skills")
     accel_table = find_section_table("Acceleration Skills")

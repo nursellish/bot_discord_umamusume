@@ -29,6 +29,12 @@ from database import (
 # ⚙️ LOGGING SISTEM
 # ============================================================
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
@@ -248,6 +254,8 @@ def format_date(date_string):
 
 def initialize_baseline():
 
+    global api_status
+
     if sent_news:
         logging.info(
             f"Memuat {len(sent_news)} berita dari penyimpanan."
@@ -265,6 +273,8 @@ def initialize_baseline():
             "Tidak dapat membuat baseline karena berita gagal diambil."
         )
         return
+
+    api_status = True
 
     for news in news_list:
         sent_news.add(
@@ -474,14 +484,23 @@ async def send_game8_update(channel):
 def is_champions_meeting_news(news):
 
     title = news.get("title", "")
+    title_lower = title.lower()
+
+    keywords = [
+        "is coming",
+        "will begin",
+        "will be held",
+        "is here",
+        "has begun",
+        "have begun",
+        "has started",
+        "is now live",
+        "now available"
+    ]
 
     result = (
-        "champions meeting:" in title.lower()
-        and any(keyword in title.lower() for keyword in [
-            "is coming",
-            "is here",
-            "has begun"
-        ])
+        "champions meeting" in title_lower
+        and any(keyword in title_lower for keyword in keywords)
     )
 
     logging.info(
@@ -493,31 +512,33 @@ def is_champions_meeting_news(news):
     return result
 
 
+def _parse_period_dt(date_string):
+    if not date_string:
+        return None
+    try:
+        cleaned = (
+            date_string
+            .replace("a.m.", "AM")
+            .replace("p.m.", "PM")
+        )
+        return datetime.strptime(
+            cleaned,
+            "%I:%M %p, %b %d, %Y (UTC)"
+        )
+    except ValueError:
+        return None
+
+
 def format_period_datetime(date_string):
 
     if not date_string:
         return None
 
-    try:
+    dt = _parse_period_dt(date_string)
+    if dt:
+        return dt.strftime("%d %b %H:%M UTC")
 
-        date_string = (
-            date_string
-            .replace("a.m.", "AM")
-            .replace("p.m.", "PM")
-        )
-
-        date = datetime.strptime(
-            date_string,
-            "%I:%M %p, %b %d, %Y (UTC)"
-        )
-
-        return date.strftime(
-            "%d %b %H:%M UTC"
-        )
-
-    except ValueError:
-
-        return date_string
+    return date_string
 
 
 def format_periods(periods):
@@ -525,15 +546,34 @@ def format_periods(periods):
     if not periods:
         return None
 
+    parsed_starts = []
+    parsed_ends = []
+
+    for p in periods:
+        dt_start = _parse_period_dt(p.get("start"))
+        if dt_start:
+            parsed_starts.append(dt_start)
+        dt_end = _parse_period_dt(p.get("end"))
+        if dt_end:
+            parsed_ends.append(dt_end)
+
+    if parsed_starts and parsed_ends:
+        start_str = min(parsed_starts).strftime("%d %b %H:%M UTC")
+        end_str = max(parsed_ends).strftime("%d %b %H:%M UTC")
+        return f"`{start_str}` → `{end_str}`"
+    elif parsed_starts:
+        start_str = min(parsed_starts).strftime("%d %b %H:%M UTC")
+        return f"`{start_str}`"
+
     first = periods[0]
     last = periods[-1]
 
     start = format_period_datetime(
-        first["start"]
+        first.get("start")
     )
 
     end = format_period_datetime(
-        last["end"]
+        last.get("end")
     )
 
     if end:
@@ -552,6 +592,9 @@ def format_game8_message(data):
         color=discord.Color.from_str("#5865F2")
     )
 
+    if data.get("guide_url"):
+        embed.url = data["guide_url"]
+
     embed.set_author(
         name="Diamond Fanmade • Guide"
     )
@@ -569,7 +612,7 @@ def format_game8_message(data):
             f"❤️ **Stamina:** {stat_vals.get('Stamina', '-')}\n"
             f"💪 **Power:** {stat_vals.get('Power', '-')}\n"
             f"🔥 **Guts:** {stat_vals.get('Guts', '-')}\n"
-            f"🎓 **Wit:** {stat_vals.get('Wit', '-')}"
+            f"🧠 **Wit:** {stat_vals.get('Wit', '-')}"
         ),
         inline=False
     )
@@ -685,6 +728,14 @@ async def on_command_error(ctx, error):
 
         return
 
+    if isinstance(error, commands.TooManyArguments):
+
+        await ctx.send(
+            "❌ Terlalu banyak argumen untuk command ini."
+        )
+
+        return
+
     logging.error(
         f"COMMAND ERROR | "
         f"Command: {ctx.command or command_name} | "
@@ -711,7 +762,7 @@ async def check_news():
             "Mengecek Official Uma Musume News..."
         )
 
-        news_list = get_news()
+        news_list = await asyncio.to_thread(get_news)
 
         if news_list is None:
 
@@ -750,8 +801,10 @@ async def check_news():
 
             return
 
+        updated_guild_news = False
 
-        for news in news_list:
+        # Urutkan secara kronologis (berita lebih lama diproses dulu) agar rapi di Discord
+        for news in reversed(news_list):
 
             news_id = news["id"]
 
@@ -794,8 +847,9 @@ async def check_news():
                 # --------------------------------------------
 
                 if guild_id not in guild_sent_news:
-
-                    guild_sent_news[guild_id] = set(sent_news)
+                    # Inisialisasi tanpa news_id saat ini agar berita baru tetap terkirim
+                    guild_sent_news[guild_id] = set(sent_news) - {news_id}
+                    updated_guild_news = True
 
                 if news_id in guild_sent_news[guild_id]:
 
@@ -831,6 +885,10 @@ async def check_news():
                             log_key
                         )
 
+                    guild_sent_news[guild_id].add(
+                        news_id
+                    )
+                    updated_guild_news = True
                     continue
 
                 channel = bot.get_channel(
@@ -838,14 +896,14 @@ async def check_news():
                 )
 
                 if channel is None:
-
-                    logging.warning(
-                        f"Channel tidak ditemukan "
-                        f"untuk guild {guild_id}: "
-                        f"{channel_id}"
-                    )
-
-                    continue
+                    try:
+                        channel = await bot.fetch_channel(channel_id)
+                    except Exception as fetch_err:
+                        logging.warning(
+                            f"Channel tidak ditemukan atau tidak dapat diakses "
+                            f"untuk guild {guild_id} (id: {channel_id}): {fetch_err}"
+                        )
+                        continue
 
                 send_key = (
                     guild_id,
@@ -899,10 +957,7 @@ async def check_news():
                     guild_sent_news[guild_id].add(
                         news_id
                     )
-
-                    save_guild_sent_news(
-                        guild_sent_news
-                    )
+                    updated_guild_news = True
 
                 except discord.Forbidden as error:
 
@@ -910,6 +965,11 @@ async def check_news():
                         f"Permission Error "
                         f"guild {guild_id}: {error}"
                     )
+                    # Tandai agar tidak loop spam error setiap 60 detik
+                    guild_sent_news[guild_id].add(
+                        news_id
+                    )
+                    updated_guild_news = True
 
                 except discord.HTTPException as error:
 
@@ -924,6 +984,11 @@ async def check_news():
                         send_key
 
                     )
+
+        if updated_guild_news:
+            save_guild_sent_news(
+                guild_sent_news
+            )
 
     except Exception:
 
@@ -1066,7 +1131,7 @@ async def testnews(ctx, news_id: int = None):
         )
         return
 
-    news_list = get_news(limit=10)
+    news_list = await asyncio.to_thread(get_news, 50)
 
     if not news_list:
         await ctx.send("❌ Tidak ada berita dari API.")
@@ -1082,7 +1147,7 @@ async def testnews(ctx, news_id: int = None):
     if news is None:
 
         await ctx.send(
-            f"❌ News ID `{news_id}` tidak ditemukan."
+            f"❌ News ID `{news_id}` tidak ditemukan dalam 50 berita terakhir."
         )
 
         return
@@ -1098,7 +1163,7 @@ async def testnews(ctx, news_id: int = None):
         logging.info(
             f"🏆 Champions Meeting terdeteksi | "
             f"News ID: {news_id}"
-    )
+        )
         await send_game8_update(
             ctx.channel
         )
@@ -1112,7 +1177,7 @@ async def testnews(ctx, news_id: int = None):
 @bot.command(name="latest")
 async def latest(ctx):
 
-    news_list = get_news(limit=5)
+    news_list = await asyncio.to_thread(get_news, 5)
 
     if not news_list:
 
@@ -1286,8 +1351,9 @@ async def status(ctx):
 @bot.command(name="stats")
 async def stats(ctx):
 
-    news_list = get_news(
-        limit=50
+    news_list = await asyncio.to_thread(
+        get_news,
+        50
     )
 
     if not news_list:
@@ -1465,12 +1531,12 @@ async def channels(ctx):
 @bot.command(name="setchannel")
 @commands.guild_only()
 @commands.has_permissions(manage_guild=True)
-async def setchannel(ctx, category=None):
+async def setchannel(ctx, category=None, channel: discord.TextChannel = None):
 
     if category is None:
 
         await ctx.send(
-            "❌ Gunakan: `!setchannel <kategori>`\n\n"
+            "❌ Gunakan: `!setchannel <kategori> [channel]`\n\n"
             "Kategori yang tersedia:\n"
             "`gacha`\n"
             "`champions`\n"
@@ -1478,7 +1544,10 @@ async def setchannel(ctx, category=None):
             "`campaign`\n"
             "`event`\n"
             "`update`\n"
-            "`news`"
+            "`news`\n\n"
+            "Contoh:\n"
+            "`!setchannel gacha` (menggunakan channel ini)\n"
+            "`!setchannel gacha #berita-gacha`"
         )
 
         return
@@ -1494,8 +1563,9 @@ async def setchannel(ctx, category=None):
 
         return
 
+    target_channel = channel or ctx.channel
     guild_id = str(ctx.guild.id)
-    channel_id = ctx.channel.id
+    channel_id = target_channel.id
 
     if guild_id not in guild_config:
         guild_config[guild_id] = {}
@@ -1525,13 +1595,13 @@ async def setchannel(ctx, category=None):
         for configured_category in CHANNEL_CATEGORY
         if guild_config[guild_id].get(
             configured_category
-        )is not None
+        ) is not None
     )
 
     await ctx.send(
         f"✅ Channel berhasil disimpan!\n\n"
         f"📂 Kategori: **{category_name}**\n"
-        f"📢 Channel: {ctx.channel.mention}\n\n"
+        f"📢 Channel: {target_channel.mention}\n\n"
         f"⚙️ Configuration: "
         f"**{configured_channels}/{total_channels} channels**"
     )

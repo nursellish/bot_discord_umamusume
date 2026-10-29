@@ -94,6 +94,12 @@ def format_guide_overview(data):
         )
     )
 
+    if data.get("guide_url"):
+        embed.url = data["guide_url"]
+
+    if data.get("map_url"):
+        embed.set_image(url=data["map_url"])
+
     embed.set_author(
         name=(
             "Diamond Fanmade • Guide"
@@ -347,6 +353,22 @@ def format_support_cards_embed(
         inline=False
     )
 
+    speed_wit_cards = selected_deck.get("speed_wit_option", [])
+    if speed_wit_cards:
+        speed_wit_text = []
+        for card in speed_wit_cards:
+            character = card["character"]
+            rarity = card["rarity"]
+            card_type = card["type"]
+            emoji = type_emoji.get(card_type, "🃏")
+            speed_wit_text.append(f"{emoji} **{character}** — {rarity}")
+        if speed_wit_text:
+            embed.add_field(
+                name=f"⚡ {style} • Speed/Wit Option",
+                value="\n".join(speed_wit_text),
+                inline=False
+            )
+
     embed.set_footer(
         text=(
             "Diamond Fanmade • Timeline • Not affiliated with Cygames"
@@ -456,18 +478,49 @@ def format_parent_deck_embed(
 
 
 # ============================================================
+# BASE GUIDE VIEW
+# ============================================================
+
+class BaseGuideView(discord.ui.View):
+
+    def __init__(self, data):
+        super().__init__(timeout=None)
+        self.data = data
+
+    async def on_error(
+        self,
+        interaction: discord.Interaction,
+        error: Exception,
+        item: discord.ui.Item
+    ):
+        import logging
+        logging.error(
+            f"UI Error ({self.__class__.__name__}): {error}",
+            exc_info=True
+        )
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "❌ Terjadi kesalahan saat memproses interaksi tombol.",
+                    ephemeral=True
+                )
+            else:
+                await interaction.followup.send(
+                    "❌ Terjadi kesalahan saat memproses interaksi tombol.",
+                    ephemeral=True
+                )
+        except Exception:
+            pass
+
+
+# ============================================================
 # SKILL VIEW
 # ============================================================
 
-class SkillView(discord.ui.View):
+class SkillView(BaseGuideView):
 
     def __init__(self, data):
-
-        super().__init__(
-            timeout=None
-        )
-
-        self.data = data
+        super().__init__(data)
 
     # ========================================================
     # GREEN SKILL
@@ -631,15 +684,10 @@ class SkillView(discord.ui.View):
 # SUPPOCARD VIEW
 # ============================================================
 
-class SupportCardView(discord.ui.View):
+class SupportCardView(BaseGuideView):
 
     def __init__(self, data):
-
-        super().__init__(
-            timeout=None
-        )
-
-        self.data = data
+        super().__init__(data)
 
     # ========================================================
     # BUDGET
@@ -803,20 +851,10 @@ class SupportCardView(discord.ui.View):
 # PARENT DECK VIEW
 # ============================================================
 
-class ParentDeckView(
-    discord.ui.View
-):
+class ParentDeckView(BaseGuideView):
 
-    def __init__(
-        self,
-        data
-    ):
-
-        super().__init__(
-            timeout=None
-        )
-
-        self.data = data
+    def __init__(self, data):
+        super().__init__(data)
 
     @discord.ui.button(
         label="Front",
@@ -934,15 +972,10 @@ class ParentDeckView(
 # GUIDE VIEW
 # ============================================================
 
-class GuideView(discord.ui.View):
+class GuideView(BaseGuideView):
 
     def __init__(self, data):
-
-        super().__init__(
-            timeout=None
-        )
-
-        self.data = data
+        super().__init__(data)
 
     # ========================================================
     # OVERVIEW
