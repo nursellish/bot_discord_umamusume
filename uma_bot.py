@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from scraper import get_news, create_preview
 from scraper_guide import get_game8_data
 
-from views.guide_view import GuideView
+from views.guide_view import GuideView, format_guide_overview
 
 from database import ( 
     load_sent_news, 
@@ -248,8 +248,6 @@ def format_date(date_string):
 
 def initialize_baseline():
 
-    global sent_news
-
     if sent_news:
         logging.info(
             f"Memuat {len(sent_news)} berita dari penyimpanan."
@@ -478,10 +476,11 @@ def is_champions_meeting_news(news):
     title = news.get("title", "")
 
     result = (
-        "The race event Champions Meeting:" in title
-        and any(keyword in title for keyword in [
+        "champions meeting:" in title.lower()
+        and any(keyword in title.lower() for keyword in [
             "is coming",
-            "is here!"
+            "is here",
+            "has begun"
         ])
     )
 
@@ -757,6 +756,13 @@ async def check_news():
             news_id = news["id"]
 
             # ------------------------------------------------
+            # DATABASE GLOBAL SENT NEWS
+            # ------------------------------------------------
+            if news_id not in sent_news:
+                sent_news.add(news_id)
+                save_sent_news(sent_news)
+
+            # ------------------------------------------------
             # KATEGORI BERITA
             # ------------------------------------------------
 
@@ -789,7 +795,7 @@ async def check_news():
 
                 if guild_id not in guild_sent_news:
 
-                    guild_sent_news[guild_id] = set()
+                    guild_sent_news[guild_id] = set(sent_news)
 
                 if news_id in guild_sent_news[guild_id]:
 
@@ -881,9 +887,14 @@ async def check_news():
                             f"News ID: {news_id}"
                         )
 
-                        await send_game8_update(
-                            channel
-                        )
+                        try:
+                            await send_game8_update(
+                                channel
+                            )
+                        except Exception as game8_error:
+                            logging.error(
+                                f"Gagal mengirim Game8 update ke guild {guild_id}: {game8_error}"
+                            )
 
                     guild_sent_news[guild_id].add(
                         news_id
@@ -1620,32 +1631,7 @@ async def guide(ctx):
         )
         return
 
-    embed = discord.Embed(
-        title=(
-            f"🏆 "
-            f"{data.get('current_cup', 'Champions Meeting')} Guide"
-        ),
-        description=(
-            "Pilih kategori skill "
-            "yang ingin kamu lihat "
-            "menggunakan tombol di bawah."
-        ),
-        color=discord.Color.from_str(
-            "#5865F2"
-        )
-    )
-
-    embed.set_author(
-        name=(
-            "Diamond Fanmade • Guide"
-        )
-    )
-
-    embed.set_footer(
-        text=(
-            "Diamond Fanmade • Timeline • Not affiliated with Cygames"
-        )
-    )
+    embed = format_guide_overview(data)
 
     await ctx.send(
         embed=embed,

@@ -13,6 +13,19 @@ GUILD_CONFIG_PATH = "data/guild_config.json"
 GUILD_SENT_NEWS_PATH = "data/guild_sent_news.json"
 
 
+def _atomic_json_dump(file_path, data):
+    os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
+    temp_path = f"{file_path}.tmp"
+    with open(temp_path, "w", encoding="utf-8") as file:
+        json.dump(
+            data,
+            file,
+            ensure_ascii=False,
+            indent=2
+        )
+    os.replace(temp_path, file_path)
+
+
 # ============================== 
 # Global Sent News 
 # ==============================
@@ -27,23 +40,20 @@ def load_sent_news():
 
         return set()
 
-    with open(FILE_PATH, "r", encoding="utf-8") as file:
-        data = json.load(file)
-
-    return set(data)
+    try:
+        with open(FILE_PATH, "r", encoding="utf-8") as file:
+            data = json.load(file)
+        return set(data)
+    except json.JSONDecodeError as error:
+        logging.error(
+            f"Database sent_news rusak: {error}. Menggunakan database kosong."
+        )
+        return set()
 
 
 def save_sent_news(sent_news):
 
-    os.makedirs("data", exist_ok=True)
-
-    with open(FILE_PATH, "w", encoding="utf-8") as file:
-        json.dump(
-            list(sent_news),
-            file,
-            ensure_ascii=False,
-            indent=2
-        )
+    _atomic_json_dump(FILE_PATH, list(sent_news))
 
     logging.info(
         f"Database saved. Total known news: {len(sent_news)}"
@@ -64,31 +74,23 @@ def load_guild_config():
 
         return {}
 
-    with open(
-        GUILD_CONFIG_PATH,
-        "r",
-        encoding="utf-8"
-    ) as file:
-
-        return json.load(file)
+    try:
+        with open(
+            GUILD_CONFIG_PATH,
+            "r",
+            encoding="utf-8"
+        ) as file:
+            return json.load(file)
+    except json.JSONDecodeError as error:
+        logging.error(
+            f"Database guild_config rusak: {error}. Menggunakan konfigurasi kosong."
+        )
+        return {}
 
 
 def save_guild_config(config):
 
-    os.makedirs("data", exist_ok=True)
-
-    with open(
-        GUILD_CONFIG_PATH,
-        "w",
-        encoding="utf-8"
-    ) as file:
-
-        json.dump(
-            config,
-            file,
-            ensure_ascii=False,
-            indent=2
-        )
+    _atomic_json_dump(GUILD_CONFIG_PATH, config)
 
     logging.info(
         "Konfigurasi server berhasil disimpan."
@@ -126,7 +128,10 @@ def load_guild_sent_news():
         logging.warning(
             "Menggunakan database guild_sent_news kosong."
         )
-        return{}
+        return {}
+
+    if not isinstance(data, dict):
+        return {}
 
     return {
         guild_id: set(news_ids)
@@ -136,25 +141,12 @@ def load_guild_sent_news():
 
 def save_guild_sent_news(guild_sent_news):
 
-    os.makedirs("data", exist_ok=True)
-
     data = {
         guild_id: list(news_ids)
         for guild_id, news_ids in guild_sent_news.items()
     }
 
-    with open(
-        GUILD_SENT_NEWS_PATH,
-        "w",
-        encoding="utf-8"
-    ) as file:
-
-        json.dump(
-            data,
-            file,
-            ensure_ascii=False,
-            indent=2
-        )
+    _atomic_json_dump(GUILD_SENT_NEWS_PATH, data)
 
     logging.info(
         "Database berita per server berhasil disimpan."

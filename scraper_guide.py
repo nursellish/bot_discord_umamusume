@@ -1,4 +1,3 @@
-import html
 import re
 import time
 import requests
@@ -67,12 +66,16 @@ def extract_support_card(link):
             strip=True
         ),
 
-        "rarity": bolds[2].next_sibling.strip(
-            " :"
+        "rarity": (
+            bolds[2].next_sibling.strip(" :")
+            if bolds[2].next_sibling and isinstance(bolds[2].next_sibling, str)
+            else "-"
         ),
 
-        "type": bolds[3].next_sibling.strip(
-            " :"
+        "type": (
+            bolds[3].next_sibling.strip(" :")
+            if bolds[3].next_sibling and isinstance(bolds[3].next_sibling, str)
+            else "-"
         ),
 
         "image": image.get(
@@ -2069,6 +2072,12 @@ def get_game8_data(force_refresh=False):
         limit=50
     )
 
+    if not news_list:
+        logging.warning(
+            "News list kosong atau gagal diambil dari API resmi."
+        )
+        news_list = []
+
 
     # ========================================================
     # GAME8 GUIDE DISCOVERY
@@ -2131,30 +2140,32 @@ def get_game8_data(force_refresh=False):
 
         title = news["title"]
 
-        if "The race event Champions Meeting:" not in title:
+        if "champions meeting:" not in title.lower():
             continue
 
-        cup_part = title.split(
-            "Champions Meeting:",
-            1
+        cup_part = re.split(
+            r"champions meeting:\s*",
+            title,
+            flags=re.IGNORECASE
         )[1].strip()
 
-        if " is here!" in cup_part:
+        cup_candidate = cup_part
+        for suffix in [
+            " is here!",
+            " is here",
+            " has begun!",
+            " has begun",
+        ]:
+            if suffix in cup_candidate.lower():
+                idx = cup_candidate.lower().find(suffix)
+                cup_candidate = cup_candidate[:idx].strip()
+                break
 
-            cup_candidate = cup_part.replace(
-                " is here!",
-                ""
-            ).strip()
+        if " is coming" in cup_candidate.lower():
+            idx = cup_candidate.lower().find(" is coming")
+            cup_candidate = cup_candidate[:idx].strip()
 
-        elif " is coming" in cup_part:
-
-            cup_candidate = cup_part.split(
-                " is coming",
-                1
-            )[0].strip()
-
-        else:
-
+        if not cup_candidate:
             continue
 
         if not current_cup:
@@ -2338,27 +2349,6 @@ def get_game8_data(force_refresh=False):
 
 
     # --------------------------------------------------------
-    # RECOMMENDED SKILLS
-    # --------------------------------------------------------
-
-    skill_heading = guide_soup.find(
-        "h2",
-        string=lambda text: (
-            text
-            and "Recommended Skills" in text
-        )
-    )
-
-    skill_table = None
-
-    if skill_heading:
-
-        skill_table = skill_heading.find_next(
-            "table"
-        )
-
-
-    # --------------------------------------------------------
     # DYNAMIC SECTION TABLE HELPER
     # --------------------------------------------------------
 
@@ -2379,9 +2369,6 @@ def get_game8_data(force_refresh=False):
     speed_table = find_section_table("Speed Skills")
     recovery_table = find_section_table("Recovery Skills")
     debuff_table = find_section_table("Debuff Skills")
-    support_table = find_section_table(
-        ["Recommended Support Cards", "Support Cards"]
-    )
     sample_table = (
         find_section_table("Sample Deck", table_index=1)
         or find_section_table("Sample Deck", table_index=0)

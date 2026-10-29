@@ -148,14 +148,37 @@ def parse_period(period_text):
 
         if len(end_parts) >= 3:
 
+            has_year = bool(
+                re.search(
+                    r"\b\d{4}\b",
+                    start_text
+                )
+            )
+
             year_timezone = ",".join(
                 end_parts[2:]
             ).strip()
 
-            start_text = (
-                f"{start_text}, "
-                f"{year_timezone}"
-            )
+            if not has_year:
+
+                start_text = (
+                    f"{start_text}, "
+                    f"{year_timezone}"
+                )
+
+            else:
+
+                tz_match = re.search(
+                    r"\([A-Za-z]+\)",
+                    year_timezone
+                )
+
+                if tz_match and tz_match.group(0) not in start_text:
+
+                    start_text = (
+                        f"{start_text} "
+                        f"{tz_match.group(0)}"
+                    )
 
     return {
         "start": start_text.strip(),

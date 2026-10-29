@@ -18,11 +18,18 @@ def format_skill_embed(
         )
     )
 
+    if not skill_groups:
+        embed.description = "Tidak ada rekomendasi skill untuk kategori ini."
+        embed.set_footer(
+            text="Diamond Fanmade • Timeline • Not affiliated with Cygames"
+        )
+        return embed
+
     for group in skill_groups:
 
         skills_text = []
 
-        for skill in group["skills"]:
+        for skill in group.get("skills", []):
 
             name = skill["name"]
             notes = skill["notes"]
@@ -54,9 +61,12 @@ def format_skill_embed(
             inline=False
         )
 
+    if not embed.fields:
+        embed.description = "Tidak ada rekomendasi skill untuk kategori ini."
+
     embed.set_footer(
         text=(
-            "Diamond Fanmade • Timeline • Not affiliated with Cygames "
+            "Diamond Fanmade • Timeline • Not affiliated with Cygames"
         )
     )
 
@@ -69,9 +79,11 @@ def format_skill_embed(
 
 def format_guide_overview(data):
 
+    cup_title = data.get('current_cup') or 'Champions Meeting'
+
     embed = discord.Embed(
         title=(
-            f"🏆 {data['current_cup']} Guide"
+            f"🏆 {cup_title} Guide"
         ),
         description=(
             "Pilih kategori guide "
@@ -92,10 +104,10 @@ def format_guide_overview(data):
     # Race Conditions
     # --------------------------------------------------------
 
-    race_conds = data.get("race_conditions", {})
-    dist = race_conds.get("Distance", {})
-    track = race_conds.get("Track", {})
-    style = race_conds.get("Style", {})
+    race_conds = data.get("race_conditions") or {}
+    dist = race_conds.get("Distance") or {}
+    track = race_conds.get("Track") or {}
+    style = race_conds.get("Style") or {}
 
     embed.add_field(
         name="🏁 Race Conditions",
@@ -119,7 +131,7 @@ def format_guide_overview(data):
     # Stat Baselines
     # --------------------------------------------------------
 
-    stat_vals = data.get("stat_baselines", {}).get("values", {})
+    stat_vals = (data.get("stat_baselines") or {}).get("values") or {}
 
     embed.add_field(
         name="📊 Stat Baselines",
@@ -137,7 +149,7 @@ def format_guide_overview(data):
     # Open League Stats
     # --------------------------------------------------------
 
-    open_stats = data.get("open_league_stats", {})
+    open_stats = data.get("open_league_stats") or {}
 
     embed.add_field(
         name="🏟️ Open League Stats",
@@ -155,10 +167,13 @@ def format_guide_overview(data):
     # Character Summary
     # --------------------------------------------------------
 
+    rec_chars = data.get('recommended_characters') or []
+    tier_chars = data.get('tier_characters') or []
+
     embed.add_field(
         name="🎯 Recommended Characters",
         value=(
-            f"**{len(data.get('recommended_characters', []))}** "
+            f"**{len(rec_chars)}** "
             f"characters"
         ),
         inline=True
@@ -167,7 +182,7 @@ def format_guide_overview(data):
     embed.add_field(
         name="⭐ Tier Characters",
         value=(
-            f"**{len(data.get('tier_characters', []))}** "
+            f"**{len(tier_chars)}** "
             f"characters"
         ),
         inline=True
@@ -285,7 +300,7 @@ def format_support_cards_embed(
 
     selected_deck = None
 
-    for deck in data["sample_decks"]:
+    for deck in (data.get("sample_decks") or []):
 
         if deck["style"] == style:
 
@@ -303,7 +318,7 @@ def format_support_cards_embed(
 
     cards_text = []
 
-    for card in selected_deck["stamina_setup"]:
+    for card in selected_deck.get("stamina_setup", []):
 
         character = card["character"]
         rarity = card["rarity"]
@@ -368,7 +383,7 @@ def format_parent_deck_embed(
 
     selected_deck = None
 
-    for deck in data["parent_decks"]:
+    for deck in (data.get("parent_decks") or []):
 
         if deck["style"] == style:
             selected_deck = deck
@@ -384,7 +399,7 @@ def format_parent_deck_embed(
 
     cards_text = []
 
-    for card in selected_deck["support_cards"]:
+    for card in selected_deck.get("support_cards", []):
 
         character = card["character"]
         rarity = card["rarity"]
@@ -427,6 +442,9 @@ def format_parent_deck_embed(
             value="\n".join(sparks_text),
             inline=False
         )
+
+    if not cards_text and not sparks:
+        embed.description = "Tidak ada rekomendasi Parent Deck untuk style ini."
 
     embed.set_footer(
         text=(
@@ -812,14 +830,12 @@ class ParentDeckView(
         button: discord.ui.Button
     ):
 
-        await interaction.response.defer()
-
         embed = format_parent_deck_embed(
             self.data,
             "Front"
         )
 
-        await interaction.edit_original_response(
+        await interaction.response.edit_message(
             embed=embed,
             view=self
         )
@@ -836,14 +852,12 @@ class ParentDeckView(
         button: discord.ui.Button
     ):
 
-        await interaction.response.defer()
-
         embed = format_parent_deck_embed(
             self.data,
             "Pace"
         )
 
-        await interaction.edit_original_response(
+        await interaction.response.edit_message(
             embed=embed,
             view=self
         )
@@ -860,14 +874,12 @@ class ParentDeckView(
         button: discord.ui.Button
     ):
 
-        await interaction.response.defer()
-
         embed = format_parent_deck_embed(
             self.data,
             "Late"
         )
 
-        await interaction.edit_original_response(
+        await interaction.response.edit_message(
             embed=embed,
             view=self
         )
@@ -884,14 +896,12 @@ class ParentDeckView(
         button: discord.ui.Button
     ):
 
-        await interaction.response.defer()
-
         embed = format_parent_deck_embed(
             self.data,
             "End"
         )
 
-        await interaction.edit_original_response(
+        await interaction.response.edit_message(
             embed=embed,
             view=self
         )
