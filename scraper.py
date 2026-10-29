@@ -301,7 +301,7 @@ def get_news(limit=10):
 
 if __name__ == "__main__":
 
-    news_list = get_news(limit=50)
+    news_list = get_news(limit=10)
 
     print("Jumlah berita:", len(news_list))
 
